@@ -124,12 +124,10 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_{cat_id}_{idx}.jpg"
         
-        upload_media_url = f"{base_domain}/api/index.php/v1/media/files/local/images/Artikel".strip()
+        upload_media_url = f"{base_domain}/api/push.php".strip()
         files = {'file': (filename, img_bytes, 'image/jpeg')}
         media_headers = {
-            "X-Joomla-Token": token_clean,
-            "Authorization": f"Bearer {token_clean}",
-            "Accept": "application/vnd.api+json"
+            "X-Joomla-Token": token_clean
         }
         
         try:
