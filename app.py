@@ -61,17 +61,7 @@ CATEGORIES_DICT = {
     "➕ Input Manual ID Kategori Baru...": -1
 }
 
-# --- HELPER FORMAT URL REST API JOOMLA 5 ---
-def get_clean_api_url(url):
-    clean = url.rstrip('/')
-    if not clean.endswith('/v1'):
-        if '/api/index.php' in clean:
-            clean = f"{clean}/v1"
-        else:
-            clean = f"{clean}/api/index.php/v1"
-    return clean
-
-# --- 1. FUNGSI EKSTRAK GOOGLE DOCS ---
+# --- 1. FUNGSI EKSTRAK GOOGLE DOCS (TEXT & GAMBAR) ---
 def get_gdoc_data(doc_id, service_account_info):
     creds = service_account.Credentials.from_service_account_info(
         service_account_info, 
@@ -121,10 +111,12 @@ def format_with_gemini(raw_text, gemini_key):
     )
     return response.text
 
-# --- 3. FUNGSI PUBLISH JOOMLA ---
+# --- 3. FUNGSI PUBLISH JOOMLA (Aman dari Blokir Server BMKG) ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    # Dapatkan URL REST API presisi
-    clean_api_url = get_clean_api_url(joomla_url)
+    # Pastikan Base URL mengarah murni ke index.php tanpa subfolder /v1
+    base_url = joomla_url.split('/v1')[0].rstrip('/')
+    if not base_url.endswith('index.php'):
+        base_url = f"{base_url}/index.php"
 
     headers = {
         "Authorization": f"Bearer {joomla_token}",
@@ -141,7 +133,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             "Accept": "application/vnd.api+json"
         }
         
-        media_endpoint = f"{clean_api_url}/media/files/images"
+        media_endpoint = f"{base_url}?option=com_media&task=file.upload"
         res_media = requests.post(media_endpoint, headers=media_headers, files=files)
         
         if res_media.status_code in [200, 201]:
@@ -170,8 +162,8 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         }
     }
     
-    # 3. Request ke Endpoint REST API Artikel Joomla 5
-    article_url = f"{clean_api_url}/content/articles"
+    # 3. Request ke Endpoint Artikel via Query Parameter
+    article_url = f"{base_url}?option=com_content&task=article.add"
     res_article = requests.post(article_url, headers=headers, json=payload)
     
     # Safe Response Parsing
