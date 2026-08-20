@@ -113,19 +113,22 @@ def format_with_gemini(raw_text, gemini_key):
 
 # --- 3. FUNGSI PUBLISH JOOMLA ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
+    # Header wajib sesuai standar spesifikasi Joomla 5 Web Services API
     headers = {
         "Authorization": f"Bearer {joomla_token}",
         "Content-Type": "application/json",
-        "Accept": "application/json"
+        "Accept": "application/vnd.api+json"
     }
     
     # 1. Upload Media / Gambar (Jika Ada)
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_img_{idx}.jpg"
         files = {'file': (filename, img_bytes, 'image/jpeg')}
-        media_headers = {"Authorization": f"Bearer {joomla_token}"}
+        media_headers = {
+            "Authorization": f"Bearer {joomla_token}",
+            "Accept": "application/vnd.api+json"
+        }
         
-        # Coba upload ke media manager
         media_endpoint = f"{joomla_url}/media/files/images"
         res_media = requests.post(media_endpoint, headers=media_headers, files=files)
         
@@ -137,7 +140,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             except Exception:
                 pass
 
-    # 2. Format Payload Resmi Joomla 5 REST API
+    # 2. Format Payload Resmi Joomla 5 Artikel
     alias_clean = re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-"))
     
     payload = {
@@ -150,17 +153,11 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         "language": "*"
     }
     
-    # Target Endpoint Utama
-    primary_url = f"{joomla_url}/content/articles"
-    res_article = requests.post(primary_url, headers=headers, json=payload)
+    # Target Endpoint Utama Joomla 5 REST API
+    article_url = f"{joomla_url}/content/articles"
+    res_article = requests.post(article_url, headers=headers, json=payload)
     
-    # 3. Jika Dapat 404 (Server BMKG Memblokir Routing Path), Jalankan Fallback Endpoint Query
-    if res_article.status_code == 404:
-        base_domain = joomla_url.split("/api/")[0]
-        fallback_url = f"{base_domain}/api/index.php?option=com_content&task=article.add"
-        res_article = requests.post(fallback_url, headers=headers, json=payload)
-
-    # 4. Safe Response Parsing
+    # Safe Response Parsing
     try:
         response_data = res_article.json()
     except Exception:
