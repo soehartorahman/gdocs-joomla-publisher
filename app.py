@@ -113,11 +113,11 @@ def format_with_gemini(raw_text, gemini_key):
 
 # --- 3. FUNGSI PUBLISH JOOMLA ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    # Header wajib sesuai standar spesifikasi Joomla 5 Web Services API
+    # Header wajib untuk permintaan ke Joomla Web Services API
     headers = {
         "Authorization": f"Bearer {joomla_token}",
         "Content-Type": "application/json",
-        "Accept": "application/vnd.api+json"
+        "Accept": "application/json"
     }
     
     # 1. Upload Media / Gambar (Jika Ada)
@@ -126,10 +126,11 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         files = {'file': (filename, img_bytes, 'image/jpeg')}
         media_headers = {
             "Authorization": f"Bearer {joomla_token}",
-            "Accept": "application/vnd.api+json"
+            "Accept": "application/json"
         }
         
-        media_endpoint = f"{joomla_url}/media/files/images"
+        # Endpoint Query untuk Upload Media di Joomla
+        media_endpoint = f"{joomla_url}?option=com_media&task=file.upload"
         res_media = requests.post(media_endpoint, headers=media_headers, files=files)
         
         if res_media.status_code in [200, 201]:
@@ -140,7 +141,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             except Exception:
                 pass
 
-    # 2. Format Payload Resmi Joomla 5 Artikel
+    # 2. Format Payload Artikel
     alias_clean = re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-"))
     
     payload = {
@@ -153,8 +154,8 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         "language": "*"
     }
     
-    # Target Endpoint Utama Joomla 5 REST API
-    article_url = f"{joomla_url}/content/articles"
+    # Target Endpoint Query untuk Menambah Artikel (Melompati Apache PathInfo Restriction)
+    article_url = f"{joomla_url}?option=com_content&task=article.add"
     res_article = requests.post(article_url, headers=headers, json=payload)
     
     # Safe Response Parsing
