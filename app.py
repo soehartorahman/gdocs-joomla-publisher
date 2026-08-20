@@ -113,7 +113,6 @@ def format_with_gemini(raw_text, gemini_key):
 
 # --- 3. FUNGSI PUBLISH JOOMLA ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    # Base URL mengarah ke index.php/v1/ REST API Joomla 5
     base_clean = joomla_url.rstrip("/")
     if "index.php" not in base_clean:
         api_endpoint = f"{base_clean}/index.php/v1"
@@ -122,14 +121,13 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     else:
         api_endpoint = base_clean
 
-    # Header Standar REST API Joomla 5
     headers = {
         "X-Joomla-Token": joomla_token.strip(),
         "Content-Type": "application/json",
         "Accept": "application/vnd.api+json"
     }
 
-    # 1. Upload Media / Gambar (Jika Ada)
+    # 1. Upload Media
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_img_{idx}.jpg"
         files = {'file': (filename, img_bytes, 'image/jpeg')}
@@ -146,9 +144,9 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
                 img_tag = f'<p><img src="/{img_path}" alt="Gambar Artikel {idx}" /></p>'
                 html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", img_tag)
         except Exception as e:
-            print(f"Log Media: {str(e)}")
+            print(f"Upload media skipped: {e}")
 
-    # 2. Format Payload JSON:API Joomla 5
+    # 2. Payload JSON:API Joomla 5
     alias_clean = re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-"))
     
     payload = {
@@ -166,25 +164,16 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         }
     }
     
-    # 3. Request POST Pembuatan Artikel
+    # 3. Post Artikel
     article_url = f"{api_endpoint}/content/articles"
+    res_article = requests.post(article_url, headers=headers, json=payload, timeout=30)
     
     try:
-        res_article = requests.post(article_url, headers=headers, json=payload, timeout=30)
+        response_data = res_article.json()
+    except Exception:
+        response_data = {"status_code": res_article.status_code, "text": res_article.text[:300]}
         
-        try:
-            response_data = res_article.json()
-        except Exception:
-            response_data = {
-                "status_code": res_article.status_code,
-                "target_url": article_url,
-                "response_text": res_article.text[:500]
-            }
-            
-        return res_article.status_code in [200, 201], response_data
-
-    except requests.exceptions.RequestException as e:
-        return False, {"error": f"Gagal koneksi HTTP: {str(e)}", "target_url": article_url}
+    return res_article.status_code in [200, 201], response_data
 
 # --- TAMPILAN APLIKASI STREAMLIT ---
 doc_url = st.text_input("Link Google Docs:")
