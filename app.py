@@ -127,26 +127,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         "Accept": "application/vnd.api+json"
     }
 
-    # 1. Upload Media
-    for idx, img_bytes in enumerate(images, start=1):
-        filename = f"article_img_{idx}.jpg"
-        files = {'file': (filename, img_bytes, 'image/jpeg')}
-        media_headers = {
-            "X-Joomla-Token": joomla_token.strip(),
-            "Accept": "application/vnd.api+json"
-        }
-        
-        media_url = f"{api_endpoint}/media/files"
-        try:
-            res_media = requests.post(media_url, headers=media_headers, files=files, timeout=30)
-            if res_media.status_code in [200, 201]:
-                img_path = res_media.json()['data']['attributes']['path']
-                img_tag = f'<p><img src="/{img_path}" alt="Gambar Artikel {idx}" /></p>'
-                html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", img_tag)
-        except Exception as e:
-            print(f"Upload media skipped: {e}")
-
-    # 2. Payload JSON:API Joomla 5
+    # 1. Format Payload JSON:API Resmi Joomla 5
     alias_clean = re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-"))
     
     payload = {
@@ -158,13 +139,12 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
                 "articletext": html_content,
                 "catid": int(cat_id),
                 "state": 1,
-                "created_by": int(author_id),
                 "language": "*"
             }
         }
     }
     
-    # 3. Post Artikel
+    # 2. Post Artikel
     article_url = f"{api_endpoint}/content/articles"
     res_article = requests.post(article_url, headers=headers, json=payload, timeout=30)
     
