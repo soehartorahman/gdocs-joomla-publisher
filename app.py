@@ -115,18 +115,16 @@ def format_with_gemini(raw_text, gemini_key):
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
     headers = {
         "Authorization": f"Bearer {joomla_token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json"
+        "Content-Type": "application/json"
     }
     
-    # Upload Gambar
+    # Upload Gambar (menggunakan endpoint query com_media)
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_img_{idx}.jpg"
         files = {'file': (filename, img_bytes, 'image/jpeg')}
         media_headers = {"Authorization": f"Bearer {joomla_token}"}
         
-        # Endpoint Media Joomla 5 API
-        media_url = f"{joomla_url}/media/files/images"
+        media_url = f"{joomla_url}?option=com_media&task=file.upload"
         res_media = requests.post(media_url, headers=media_headers, files=files)
         
         if res_media.status_code in [200, 201]:
@@ -137,7 +135,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             except Exception:
                 pass
 
-    # Buat Artikel Baru
+    # Buat Artikel Baru (menggunakan endpoint query com_content)
     payload = {
         "title": title,
         "alias": re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-")),
@@ -148,18 +146,16 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         "language": "*"
     }
     
-    # Standard REST API Endpoint Joomla 5
-    article_url = f"{joomla_url}/content/articles"
+    article_url = f"{joomla_url}?option=com_content&task=article.add"
     res_article = requests.post(article_url, headers=headers, json=payload)
     
-    # Penanganan Safe JSON Parsing agar tidak Error Char 0
+    # Pengamanan Parsing Response
     try:
         response_data = res_article.json()
     except Exception:
-        response_data = {"raw_response": res_article.text, "status_code": res_article.status_code}
+        response_data = {"status_code": res_article.status_code, "text": res_article.text[:200]}
         
     return res_article.status_code in [200, 201], response_data
-
 
 # --- TAMPILAN APLIKASI STREAMLIT ---
 doc_url = st.text_input("Link Google Docs:")
