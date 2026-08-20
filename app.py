@@ -115,7 +115,8 @@ def format_with_gemini(raw_text, gemini_key):
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
     headers = {
         "Authorization": f"Bearer {joomla_token}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/json"
     }
     
     # Upload Gambar
@@ -123,9 +124,11 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         filename = f"article_img_{idx}.jpg"
         files = {'file': (filename, img_bytes, 'image/jpeg')}
         media_headers = {"Authorization": f"Bearer {joomla_token}"}
-        media_url = f"{joomla_url}?option=com_media&task=file.upload"
         
+        # Endpoint Media Joomla 5 API
+        media_url = f"{joomla_url}/media/files/images"
         res_media = requests.post(media_url, headers=media_headers, files=files)
+        
         if res_media.status_code in [200, 201]:
             try:
                 img_path = res_media.json()['data']['attributes']['path']
@@ -145,17 +148,17 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         "language": "*"
     }
     
-    # Endpoint penambahan artikel resmi Joomla REST API
-    article_url = f"{joomla_url}?option=com_content&task=article.add"
-    
+    # Standard REST API Endpoint Joomla 5
+    article_url = f"{joomla_url}/content/articles"
     res_article = requests.post(article_url, headers=headers, json=payload)
     
-    # Jika endpoint task=article.add masih 404, fallback ke endpoint standar REST API v1
-    if res_article.status_code == 404:
-        fallback_url = "https://gaw-bariri.bmkg.go.id/api/index.php/v1/content/articles"
-        res_article = requests.post(fallback_url, headers=headers, json=payload)
-
-    return res_article.status_code in [200, 201], res_article.json()
+    # Penanganan Safe JSON Parsing agar tidak Error Char 0
+    try:
+        response_data = res_article.json()
+    except Exception:
+        response_data = {"raw_response": res_article.text, "status_code": res_article.status_code}
+        
+    return res_article.status_code in [200, 201], response_data
 
 
 # --- TAMPILAN APLIKASI STREAMLIT ---
