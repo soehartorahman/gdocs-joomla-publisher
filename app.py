@@ -113,16 +113,17 @@ def format_with_gemini(raw_text, gemini_key):
 
 # --- 3. FUNGSI PUBLISH JOOMLA ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    # Bersihkan URL dari trailing slash
-    base_url = joomla_url.rstrip('/')
-    
+    base_url = joomla_url.split('/v1')[0].rstrip('/')
+    if not base_url.endswith('index.php'):
+        base_url = f"{base_url}/index.php"
+
     headers = {
         "Authorization": f"Bearer {joomla_token}",
         "Content-Type": "application/json",
         "Accept": "application/vnd.api+json"
     }
     
-    # 1. Upload Gambar
+    # 1. Upload Media / Gambar (jika ada)
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_img_{idx}.jpg"
         files = {'file': (filename, img_bytes, 'image/jpeg')}
@@ -131,7 +132,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             "Accept": "application/vnd.api+json"
         }
         
-        media_endpoint = f"{base_url}/media/files/images"
+        media_endpoint = f"{base_url}?option=com_media&task=file.upload"
         res_media = requests.post(media_endpoint, headers=media_headers, files=files)
         
         if res_media.status_code in [200, 201]:
@@ -142,7 +143,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             except Exception:
                 pass
 
-    # 2. Format Payload Wajib Joomla 5 (data -> attributes)
+    # 2. Payload Standar JSON:API Joomla 5
     alias_clean = re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-"))
     
     payload = {
@@ -160,18 +161,23 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         }
     }
     
-    # 3. Kirim ke Endpoint Artikel Resmi
-    article_url = f"{base_url}/content/articles"
+    # 3. Request ke Endpoint Query API Joomla 5 (Aman dari Blokir 404 Apache)
+    article_url = f"{base_url}?option=com_content&task=article.add"
     res_article = requests.post(article_url, headers=headers, json=payload)
     
-    # Safe Response Parsing (Mencegah Crash jika server kirim Non-JSON)
+    # Fallback jika task=article.add ditolak router internal
+    if res_article.status_code == 404:
+        article_url = f"{base_url}?option=com_content&task=articles"
+        res_article = requests.post(article_url, headers=headers, json=payload)
+
+    # Safe JSON Response Parsing
     try:
         response_data = res_article.json()
     except Exception:
         response_data = {
             "status_code": res_article.status_code, 
             "url_terpanggil": article_url,
-            "text": res_article.text[:200]
+            "text": res_article.text[:300]
         }
         
     return res_article.status_code in [200, 201], response_data
