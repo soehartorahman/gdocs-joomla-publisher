@@ -113,8 +113,8 @@ def format_with_gemini(raw_text, gemini_key):
 
 # --- 3. PUBLISH KE JOOMLA VIA PUSH.PHP ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    base_domain = "[https://gaw-bariri.bmkg.go.id](https://gaw-bariri.bmkg.go.id)"
-    endpoint_url = f"{base_domain}/api/push.php"
+    base_domain = "https://gaw-bariri.bmkg.go.id"
+    endpoint_url = f"{base_domain}/api/push.php".strip()
     token_clean = joomla_token.strip()
 
     logs = []
@@ -124,8 +124,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_{cat_id}_{idx}.jpg"
         
-        # Endpoint upload media Joomla
-        upload_media_url = f"{base_domain}/api/index.php/v1/media/files/local/images/Artikel"
+        upload_media_url = f"{base_domain}/api/index.php/v1/media/files/local/images/Artikel".strip()
         files = {'file': (filename, img_bytes, 'image/jpeg')}
         media_headers = {
             "X-Joomla-Token": token_clean,
@@ -139,11 +138,9 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         except Exception as e:
             logs.append(f"⚠️ **Upload Gambar {idx} Exception:** `{str(e)}`")
 
-        # Buat tag img HTML dengan Absolute Domain URL agar pasti muncul di web
         img_src_url = f"{base_domain}/images/Artikel/{filename}"
         img_tag = f'<p style="text-align: center;"><img src="{img_src_url}" alt="{title}" class="img-fluid rounded my-3" /></p>'
         
-        # Replace Placeholder
         html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", img_tag)
 
     # B. SANITASI TITLE & ALIAS
@@ -179,7 +176,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         response_data = {"status_code": res.status_code, "text": res.text[:500]}
 
     return res.status_code in [200, 201], response_data, logs
-
+    
 # --- INTERFACE STREAMLIT ---
 doc_url = st.text_input("Link Google Docs:")
 article_title = st.text_input("Judul Artikel:")
