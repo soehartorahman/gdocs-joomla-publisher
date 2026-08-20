@@ -113,7 +113,7 @@ def format_with_gemini(raw_text, gemini_key):
 
 # --- 3. FUNGSI PUBLISH JOOMLA ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    # Header wajib sesuai standar spesifikasi Joomla 5 Web Services API
+    # Header wajib agar diterima oleh Web Services API Joomla 5
     headers = {
         "Authorization": f"Bearer {joomla_token}",
         "Content-Type": "application/json",
@@ -129,8 +129,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             "Accept": "application/vnd.api+json"
         }
         
-        # Endpoint Media Joomla
-        media_endpoint = f"{joomla_url}/media/files/images"
+        media_endpoint = f"{joomla_url}?option=com_media&task=file.upload"
         res_media = requests.post(media_endpoint, headers=media_headers, files=files)
         
         if res_media.status_code in [200, 201]:
@@ -141,7 +140,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             except Exception:
                 pass
 
-    # 2. Format Payload Resmi Joomla 5 Artikel
+    # 2. Format Payload Resmi Joomla 5
     alias_clean = re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-"))
     
     payload = {
@@ -154,10 +153,15 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         "language": "*"
     }
     
-    # Target Endpoint Utama Joomla 5 REST API
-    article_url = f"{joomla_url}/content/articles"
+    # Endpoint Query khusus untuk artikel com_content
+    article_url = f"{joomla_url}?option=com_content&task=articles"
     res_article = requests.post(article_url, headers=headers, json=payload)
     
+    # Fallback jika task=articles menolak POST
+    if res_article.status_code == 404:
+        article_url = f"{joomla_url}?option=com_content&task=article.add"
+        res_article = requests.post(article_url, headers=headers, json=payload)
+
     # Safe Response Parsing
     try:
         response_data = res_article.json()
