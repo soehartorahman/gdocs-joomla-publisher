@@ -113,24 +113,23 @@ def format_with_gemini(raw_text, gemini_key):
 
 # --- 3. FUNGSI PUBLISH JOOMLA ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    # 1. Rapikan Base URL API ke Endpoint RESTful /v1/
-    clean_url = joomla_url.rstrip("/")
-    if not clean_url.endswith("/v1"):
-        if "index.php" in clean_url:
-            base_api_url = f"{clean_url}/v1"
-        else:
-            base_api_url = f"{clean_url}/index.php/v1"
+    # Base URL mengarah ke index.php/v1/ REST API Joomla 5
+    base_clean = joomla_url.rstrip("/")
+    if "index.php" not in base_clean:
+        api_endpoint = f"{base_clean}/index.php/v1"
+    elif not base_clean.endswith("/v1"):
+        api_endpoint = f"{base_clean}/v1"
     else:
-        base_api_url = clean_url
+        api_endpoint = base_clean
 
-    # 2. Header Khusus REST API Joomla 5
+    # Header Standar REST API Joomla 5
     headers = {
         "X-Joomla-Token": joomla_token.strip(),
         "Content-Type": "application/json",
         "Accept": "application/vnd.api+json"
     }
 
-    # 3. Upload Gambar (Jika ada)
+    # 1. Upload Media / Gambar (Jika Ada)
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_img_{idx}.jpg"
         files = {'file': (filename, img_bytes, 'image/jpeg')}
@@ -139,17 +138,17 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             "Accept": "application/vnd.api+json"
         }
         
-        media_endpoint = f"{base_api_url}/media/files"
+        media_url = f"{api_endpoint}/media/files"
         try:
-            res_media = requests.post(media_endpoint, headers=media_headers, files=files, timeout=30)
+            res_media = requests.post(media_url, headers=media_headers, files=files, timeout=30)
             if res_media.status_code in [200, 201]:
                 img_path = res_media.json()['data']['attributes']['path']
                 img_tag = f'<p><img src="/{img_path}" alt="Gambar Artikel {idx}" /></p>'
                 html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", img_tag)
         except Exception as e:
-            print(f"Gagal upload media {idx}: {e}")
+            print(f"Log Media: {str(e)}")
 
-    # 4. Payload Mengikuti Spesifikasi JSON:API Resmi Joomla 5
+    # 2. Format Payload JSON:API Joomla 5
     alias_clean = re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-"))
     
     payload = {
@@ -167,11 +166,12 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         }
     }
     
-    # 5. Kirim Request POST Artikel
-    article_url = f"{base_api_url}/content/articles"
+    # 3. Request POST Pembuatan Artikel
+    article_url = f"{api_endpoint}/content/articles"
     
     try:
         res_article = requests.post(article_url, headers=headers, json=payload, timeout=30)
+        
         try:
             response_data = res_article.json()
         except Exception:
@@ -180,10 +180,11 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
                 "target_url": article_url,
                 "response_text": res_article.text[:500]
             }
+            
         return res_article.status_code in [200, 201], response_data
-        
+
     except requests.exceptions.RequestException as e:
-        return False, {"error": f"Koneksi HTTP Gagal: {str(e)}", "target_url": article_url}
+        return False, {"error": f"Gagal koneksi HTTP: {str(e)}", "target_url": article_url}
 
 # --- TAMPILAN APLIKASI STREAMLIT ---
 doc_url = st.text_input("Link Google Docs:")
