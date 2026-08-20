@@ -113,6 +113,7 @@ def format_with_gemini(raw_text, gemini_key):
 
 # --- 3. FUNGSI PUBLISH JOOMLA ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
+    # Base URL mengarah ke /api/index.php/v1
     base_clean = joomla_url.rstrip("/")
     if "index.php" not in base_clean:
         api_endpoint = f"{base_clean}/index.php/v1"
@@ -121,15 +122,21 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     else:
         api_endpoint = base_clean
 
+    token_clean = joomla_token.strip()
+
+    # Sertakan dua jenis header otentikasi (X-Joomla-Token & Bearer) untuk memastikan ketersediaan
     headers = {
-        "X-Joomla-Token": joomla_token.strip(),
+        "X-Joomla-Token": token_clean,
+        "Authorization": f"Bearer {token_clean}",
         "Content-Type": "application/json",
         "Accept": "application/vnd.api+json"
     }
 
-    # 1. Format Payload JSON:API Resmi Joomla 5
+    # 1. Bersihkan Alias
     alias_clean = re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-"))
-    
+
+    # 2. Payload Ketat REST API Joomla 5 (JSON:API Standard)
+    # Memastikan catid murni bernilai Integer
     payload = {
         "data": {
             "type": "articles",
@@ -144,14 +151,18 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         }
     }
     
-    # 2. Post Artikel
+    # 3. Kirim Request POST
     article_url = f"{api_endpoint}/content/articles"
     res_article = requests.post(article_url, headers=headers, json=payload, timeout=30)
     
     try:
         response_data = res_article.json()
     except Exception:
-        response_data = {"status_code": res_article.status_code, "text": res_article.text[:300]}
+        response_data = {
+            "status_code": res_article.status_code,
+            "target_url": article_url,
+            "text": res_article.text[:300]
+        }
         
     return res_article.status_code in [200, 201], response_data
 
