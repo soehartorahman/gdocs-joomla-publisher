@@ -117,10 +117,11 @@ def ensure_joomla_folder(api_endpoint, folder_name, headers, logs):
     if not safe_folder:
         safe_folder = "Artikel"
 
-    create_folder_url = f"{api_endpoint}/media/folders/local-images:/"
+    # Fix Endpoint Media Folder Joomla 5 (Tanpa titik dua)
+    create_folder_url = f"{api_endpoint}/media/folders/local/images"
     payload = {
         "name": safe_folder,
-        "parent": "local-images:/"
+        "parent": "local/images"
     }
 
     try:
@@ -131,7 +132,7 @@ def ensure_joomla_folder(api_endpoint, folder_name, headers, logs):
 
     return safe_folder
 
-# --- 4. FUNGSI PUBLISH UTAMA DENGAN DEBUGGER LENGKAP ---
+# --- 4. FUNGSI PUBLISH UTAMA (FIXED PAYLOAD JOOMLA 5) ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token, selected_cat_name):
     base_clean = joomla_url.rstrip("/")
     if "index.php" not in base_clean:
@@ -156,10 +157,10 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     # A. CEK / BUAT FOLDER OTOMATIS
     folder_target = ensure_joomla_folder(api_endpoint, selected_cat_name, headers, logs)
 
-    # B. UPLOAD MEDIA
+    # B. UPLOAD MEDIA (Fixed Path Endpoint)
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_img_{idx}.jpg"
-        media_url = f"{api_endpoint}/media/files/local-images:/{folder_target}"
+        media_url = f"{api_endpoint}/media/files/local/images/{folder_target}"
         files = {'file': (filename, img_bytes, 'image/jpeg')}
         media_headers = {
             "X-Joomla-Token": token_clean,
@@ -176,7 +177,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
                 img_tag = f'<p><img src="/{img_path}" alt="{title} - Gambar {idx}" /></p>'
                 html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", img_tag)
             else:
-                fallback_url = f"{api_endpoint}/media/files/local-images:/"
+                fallback_url = f"{api_endpoint}/media/files/local/images"
                 res_fallback = requests.post(fallback_url, headers=media_headers, files=files, timeout=15)
                 logs.append(f"🔄 **Media {idx} Fallback Root Status:** `{res_fallback.status_code}`")
                 
@@ -191,17 +192,18 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", "")
             logs.append(f"❌ **Media Exception:** `{str(e)}`")
 
-    # C. SANITASI ALIAS & FORMASI PAYLOAD
-    alias_clean = re.sub(r'[^a-z0-9-]', '', title.lower().replace(" ", "-").replace(":", ""))
+    # C. SANITASI ALIAS
+    alias_clean = re.sub(r'[^a-z0-9-]', '', title.lower().replace(" ", "-").replace(":", "").replace("–", ""))
     alias_clean = re.sub(r'-+', '-', alias_clean).strip('-')
 
+    # D. PAYLOAD DENGAN TIPE DATA RIGID (Sesuai Skema REST API Joomla 5)
     payload = {
         "data": {
             "type": "articles",
             "attributes": {
-                "title": title,
-                "alias": alias_clean,
-                "articletext": html_content,
+                "title": str(title).strip(),
+                "alias": str(alias_clean),
+                "articletext": str(html_content),
                 "catid": int(cat_id),
                 "state": 1,
                 "created_by": int(author_id),
@@ -212,7 +214,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
 
     logs.append(f"📦 **Payload JSON Sent:**\n```json\n{payload}\n```")
 
-    # D. POST ARTIKEL
+    # E. POST ARTIKEL
     article_url = f"{api_endpoint}/content/articles"
     logs.append(f"🚀 **Target Post URL:** `{article_url}`")
 
