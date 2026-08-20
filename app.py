@@ -113,37 +113,43 @@ def format_with_gemini(raw_text, gemini_key):
 
 # --- 3. FUNGSI PUBLISH JOOMLA ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    # Gunakan base URL murni ke index.php
-    base_url = "https://gaw-bariri.bmkg.go.id/api/index.php"
+    # 1. Rapikan Base URL API ke Endpoint RESTful /v1/
+    clean_url = joomla_url.rstrip("/")
+    if not clean_url.endswith("/v1"):
+        if "index.php" in clean_url:
+            base_api_url = f"{clean_url}/v1"
+        else:
+            base_api_url = f"{clean_url}/index.php/v1"
+    else:
+        base_api_url = clean_url
 
+    # 2. Header Khusus REST API Joomla 5
     headers = {
-        "Authorization": f"Bearer {joomla_token}",
+        "X-Joomla-Token": joomla_token.strip(),
         "Content-Type": "application/json",
         "Accept": "application/vnd.api+json"
     }
 
-    # 1. Upload Media / Gambar (Jika Ada)
+    # 3. Upload Gambar (Jika ada)
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_img_{idx}.jpg"
         files = {'file': (filename, img_bytes, 'image/jpeg')}
         media_headers = {
-            "Authorization": f"Bearer {joomla_token}",
+            "X-Joomla-Token": joomla_token.strip(),
             "Accept": "application/vnd.api+json"
         }
         
-        # Endpoint Media via routing internal Joomla
-        media_endpoint = f"{base_url}?option=com_media&task=file.upload"
-        res_media = requests.post(media_endpoint, headers=media_headers, files=files)
-        
-        if res_media.status_code in [200, 201]:
-            try:
+        media_endpoint = f"{base_api_url}/media/files"
+        try:
+            res_media = requests.post(media_endpoint, headers=media_headers, files=files, timeout=30)
+            if res_media.status_code in [200, 201]:
                 img_path = res_media.json()['data']['attributes']['path']
                 img_tag = f'<p><img src="/{img_path}" alt="Gambar Artikel {idx}" /></p>'
                 html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", img_tag)
-            except Exception:
-                pass
+        except Exception as e:
+            print(f"Gagal upload media {idx}: {e}")
 
-    # 2. Format Payload Wajib REST API Joomla 5
+    # 4. Payload Mengikuti Spesifikasi JSON:API Resmi Joomla 5
     alias_clean = re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-"))
     
     payload = {
@@ -161,21 +167,23 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         }
     }
     
-    # 3. Request Artikel via Query routing yang lolos dari 404 Apache
-    article_url = f"{base_url}?option=com_content&task=article.add"
-    res_article = requests.post(article_url, headers=headers, json=payload)
+    # 5. Kirim Request POST Artikel
+    article_url = f"{base_api_url}/content/articles"
     
-    # Safe Response Parsing
     try:
-        response_data = res_article.json()
-    except Exception:
-        response_data = {
-            "status_code": res_article.status_code,
-            "url_terpanggil": article_url,
-            "text": res_article.text[:300]
-        }
+        res_article = requests.post(article_url, headers=headers, json=payload, timeout=30)
+        try:
+            response_data = res_article.json()
+        except Exception:
+            response_data = {
+                "status_code": res_article.status_code,
+                "target_url": article_url,
+                "response_text": res_article.text[:500]
+            }
+        return res_article.status_code in [200, 201], response_data
         
-    return res_article.status_code in [200, 201], response_data
+    except requests.exceptions.RequestException as e:
+        return False, {"error": f"Koneksi HTTP Gagal: {str(e)}", "target_url": article_url}
 
 # --- TAMPILAN APLIKASI STREAMLIT ---
 doc_url = st.text_input("Link Google Docs:")
