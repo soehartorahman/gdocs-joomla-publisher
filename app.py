@@ -111,18 +111,18 @@ def format_with_gemini(raw_text, gemini_key):
     )
     return response.text
 
-# --- 3. FUNGSI PUBLISH JOOMLA (DUAL-ENDPOINT FAILOVER) ---
+# --- 3. FUNGSI PUBLISH JOOMLA ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    # Dapatkan domain utama
-    base_domain = joomla_url.split('/api')[0].rstrip('/')
-    
+    # Gunakan base URL murni ke index.php
+    base_url = "https://gaw-bariri.bmkg.go.id/api/index.php"
+
     headers = {
         "Authorization": f"Bearer {joomla_token}",
         "Content-Type": "application/json",
         "Accept": "application/vnd.api+json"
     }
-    
-    # 1. Upload Media / Gambar
+
+    # 1. Upload Media / Gambar (Jika Ada)
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_img_{idx}.jpg"
         files = {'file': (filename, img_bytes, 'image/jpeg')}
@@ -131,8 +131,8 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             "Accept": "application/vnd.api+json"
         }
         
-        # Endpoint Media Resmi Joomla 5
-        media_endpoint = f"{base_domain}/api/index.php/v1/media/files/images"
+        # Endpoint Media via routing internal Joomla
+        media_endpoint = f"{base_url}?option=com_media&task=file.upload"
         res_media = requests.post(media_endpoint, headers=media_headers, files=files)
         
         if res_media.status_code in [200, 201]:
@@ -143,7 +143,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             except Exception:
                 pass
 
-    # 2. Format Payload Resmi REST API Joomla 5
+    # 2. Format Payload Wajib REST API Joomla 5
     alias_clean = re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-"))
     
     payload = {
@@ -161,21 +161,17 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         }
     }
     
-    # 3. Percobaan Pertama: Standard REST API Endpoint Joomla 5
-    article_url = f"{base_domain}/api/index.php/v1/content/articles"
+    # 3. Request Artikel via Query routing yang lolos dari 404 Apache
+    article_url = f"{base_url}?option=com_content&task=article.add"
     res_article = requests.post(article_url, headers=headers, json=payload)
     
-    # Percobaan Kedua (Fallback): Jika Server Melempar 404, Gunakan Endpoint Direct Index
-    if res_article.status_code == 404:
-        fallback_url = f"{base_domain}/api/v1/content/articles"
-        res_article = requests.post(fallback_url, headers=headers, json=payload)
-
-    # Safe JSON Response Parsing
+    # Safe Response Parsing
     try:
         response_data = res_article.json()
     except Exception:
         response_data = {
             "status_code": res_article.status_code,
+            "url_terpanggil": article_url,
             "text": res_article.text[:300]
         }
         
