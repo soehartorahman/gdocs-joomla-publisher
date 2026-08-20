@@ -147,66 +147,29 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     headers = {
         "X-Joomla-Token": token_clean,
         "Authorization": f"Bearer {token_clean}",
-        "Content-Type": "application/json",
+        "Content-Type": "application/vnd.api+json",
         "Accept": "application/vnd.api+json"
     }
 
     logs = []
     logs.append(f"🔍 **BASE API ENDPOINT:** `{api_endpoint}`")
 
-    # A. CEK / BUAT FOLDER OTOMATIS
-    folder_target = ensure_joomla_folder(api_endpoint, selected_cat_name, headers, logs)
-
-    # B. UPLOAD MEDIA (Fixed Path Endpoint)
-    for idx, img_bytes in enumerate(images, start=1):
-        filename = f"article_img_{idx}.jpg"
-        media_url = f"{api_endpoint}/media/files/local/images/{folder_target}"
-        files = {'file': (filename, img_bytes, 'image/jpeg')}
-        media_headers = {
-            "X-Joomla-Token": token_clean,
-            "Authorization": f"Bearer {token_clean}",
-            "Accept": "application/vnd.api+json"
-        }
-        
-        try:
-            res_media = requests.post(media_url, headers=media_headers, files=files, timeout=15)
-            logs.append(f"🖼️ **Media {idx} Status:** `{res_media.status_code}` | **URL:** `{media_url}`")
-            
-            if res_media.status_code in [200, 201]:
-                img_path = res_media.json()['data']['attributes']['path']
-                img_tag = f'<p><img src="/{img_path}" alt="{title} - Gambar {idx}" /></p>'
-                html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", img_tag)
-            else:
-                fallback_url = f"{api_endpoint}/media/files/local/images"
-                res_fallback = requests.post(fallback_url, headers=media_headers, files=files, timeout=15)
-                logs.append(f"🔄 **Media {idx} Fallback Root Status:** `{res_fallback.status_code}`")
-                
-                if res_fallback.status_code in [200, 201]:
-                    img_path = res_fallback.json()['data']['attributes']['path']
-                    img_tag = f'<p><img src="/{img_path}" alt="{title} - Gambar {idx}" /></p>'
-                    html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", img_tag)
-                else:
-                    html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", "")
-                    
-        except Exception as e:
-            html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", "")
-            logs.append(f"❌ **Media Exception:** `{str(e)}`")
-
-    # C. SANITASI ALIAS
-    alias_clean = re.sub(r'[^a-z0-9-]', '', title.lower().replace(" ", "-").replace(":", "").replace("–", ""))
+    # A. SANITASI TITLE & ALIAS
+    clean_title = title.replace("–", "-").replace("—", "-").strip()
+    alias_clean = re.sub(r'[^a-z0-9-]', '', clean_title.lower().replace(" ", "-").replace(":", ""))
     alias_clean = re.sub(r'-+', '-', alias_clean).strip('-')
 
-    # D. PAYLOAD DENGAN TIPE DATA RIGID (Sesuai Skema REST API Joomla 5)
+    # B. PAYLOAD KETAT REST API JOOMLA 5 (Mendukung catid & created_by)
     payload = {
         "data": {
             "type": "articles",
             "attributes": {
-                "title": str(title).strip(),
-                "alias": str(alias_clean),
-                "articletext": str(html_content),
+                "title": clean_title,
+                "alias": alias_clean,
+                "articletext": html_content,
                 "catid": int(cat_id),
-                "state": 1,
                 "created_by": int(author_id),
+                "state": 1,
                 "language": "*"
             }
         }
@@ -214,7 +177,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
 
     logs.append(f"📦 **Payload JSON Sent:**\n```json\n{payload}\n```")
 
-    # E. POST ARTIKEL
+    # C. POST ARTIKEL
     article_url = f"{api_endpoint}/content/articles"
     logs.append(f"🚀 **Target Post URL:** `{article_url}`")
 
