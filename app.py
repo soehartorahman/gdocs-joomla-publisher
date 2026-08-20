@@ -144,6 +144,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
 
     token_clean = joomla_token.strip()
 
+    # Header Resmi JSON:API
     headers = {
         "X-Joomla-Token": token_clean,
         "Authorization": f"Bearer {token_clean}",
@@ -154,12 +155,12 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     logs = []
     logs.append(f"🔍 **BASE API ENDPOINT:** `{api_endpoint}`")
 
-    # A. SANITASI TITLE & ALIAS
-    clean_title = title.replace("–", "-").replace("—", "-").strip()
+    # 1. SANITASI TITLE & ALIAS
+    clean_title = str(title).replace("–", "-").replace("—", "-").strip()
     alias_clean = re.sub(r'[^a-z0-9-]', '', clean_title.lower().replace(" ", "-").replace(":", ""))
     alias_clean = re.sub(r'-+', '-', alias_clean).strip('-')
 
-    # B. PAYLOAD KETAT REST API JOOMLA 5 (Mendukung catid & created_by)
+    # 2. PAYLOAD LENGKAP ARTIKEL JOOMLA 5
     payload = {
         "data": {
             "type": "articles",
@@ -175,13 +176,16 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         }
     }
 
+    # Serialisasi JSON secara eksplisit ke UTF-8 Bytes/String
+    json_payload = json.dumps(payload)
     logs.append(f"📦 **Payload JSON Sent:**\n```json\n{payload}\n```")
 
-    # C. POST ARTIKEL
+    # 3. POST ARTIKEL
     article_url = f"{api_endpoint}/content/articles"
     logs.append(f"🚀 **Target Post URL:** `{article_url}`")
 
-    res_article = requests.post(article_url, headers=headers, json=payload, timeout=30)
+    # Mengirim data via 'data=' dengan json_payload murni
+    res_article = requests.post(article_url, headers=headers, data=json_payload, timeout=30)
     logs.append(f"📡 **Article Post Response Status:** `{res_article.status_code}`")
 
     try:
