@@ -135,66 +135,44 @@ def ensure_joomla_folder(api_endpoint, folder_name, headers, logs):
 
 # --- 4. FUNGSI PUBLISH UTAMA (FIXED PAYLOAD JOOMLA 5) ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token, selected_cat_name):
-    base_clean = joomla_url.rstrip("/")
-    if "index.php" not in base_clean:
-        api_endpoint = f"{base_clean}/index.php/v1"
-    elif not base_clean.endswith("/v1"):
-        api_endpoint = f"{base_clean}/v1"
-    else:
-        api_endpoint = base_clean
+    # Direct Endpoint ke file push.php yang baru dibuat
+    endpoint_url = "https://gaw-bariri.bmkg.go.id/api/push.php"
 
     token_clean = joomla_token.strip()
 
     headers = {
         "X-Joomla-Token": token_clean,
-        "Authorization": f"Bearer {token_clean}",
-        "Content-Type": "application/json",
-        "Accept": "application/vnd.api+json"
+        "Content-Type": "application/json"
     }
 
     logs = []
-    logs.append(f"🔍 **BASE API ENDPOINT:** `{api_endpoint}`")
+    logs.append(f"🔍 **DIRECT BRIDGE ENDPOINT:** `{endpoint_url}`")
 
-    # 1. SANITASI JUDUL & ALIAS (Hapus karakter non-breaking space & simbol aneh)
-    clean_title = re.sub(r'[\xa0\t\n\r]', ' ', str(title)).strip()
-    clean_title = clean_title.replace("–", "-").replace("—", "-")
-    
+    # Sanitasi Alias
+    clean_title = str(title).replace("–", "-").replace("—", "-").strip()
     alias_clean = re.sub(r'[^a-z0-9-]', '', clean_title.lower().replace(" ", "-").replace(":", ""))
     alias_clean = re.sub(r'-+', '-', alias_clean).strip('-')
 
-    # 2. PAYLOAD DENGAN FIELD KATEGORI GANDA (catid & category)
+    # Payload Sederhana Langsung ke Table Joomla
     payload = {
-        "data": {
-            "type": "articles",
-            "attributes": {
-                "title": clean_title,
-                "alias": alias_clean,
-                "articletext": str(html_content),
-                "catid": int(cat_id),
-                "category": int(cat_id), # Mengakomodasi validator versi com_content
-                "created_by": int(author_id),
-                "state": 1,
-                "language": "*"
-            }
-        }
+        "title": clean_title,
+        "alias": alias_clean,
+        "articletext": html_content,
+        "catid": int(cat_id),
+        "created_by": int(author_id)
     }
 
-    json_payload = json.dumps(payload)
-    logs.append(f"📦 **Payload JSON Sent:**\n```json\n{payload}\n```")
+    logs.append(f"📦 **Payload Sent to Bridge:**\n```json\n{payload}\n```")
 
-    # 3. POST ARTIKEL
-    article_url = f"{api_endpoint}/content/articles"
-    logs.append(f"🚀 **Target Post URL:** `{article_url}`")
-
-    res_article = requests.post(article_url, headers=headers, data=json_payload, timeout=30)
-    logs.append(f"📡 **Article Post Response Status:** `{res_article.status_code}`")
+    res = requests.post(endpoint_url, headers=headers, json=payload, timeout=30)
+    logs.append(f"📡 **Bridge Response Status:** `{res.status_code}`")
 
     try:
-        response_data = res_article.json()
+        response_data = res.json()
     except Exception:
-        response_data = {"status_code": res_article.status_code, "text": res_article.text[:500]}
+        response_data = {"status_code": res.status_code, "text": res.text[:500]}
 
-    return res_article.status_code in [200, 201], response_data, logs
+    return res.status_code in [200, 201], response_data, logs
 
 # --- TAMPILAN APLIKASI STREAMLIT ---
 doc_url = st.text_input("Link Google Docs:")
