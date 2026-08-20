@@ -115,17 +115,19 @@ def format_with_gemini(raw_text, gemini_key):
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
     headers = {
         "Authorization": f"Bearer {joomla_token}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/json"
     }
     
-    # Upload Gambar (menggunakan endpoint query com_media)
+    # 1. Upload Media / Gambar (Jika Ada)
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_img_{idx}.jpg"
         files = {'file': (filename, img_bytes, 'image/jpeg')}
         media_headers = {"Authorization": f"Bearer {joomla_token}"}
         
-        media_url = f"{joomla_url}?option=com_media&task=file.upload"
-        res_media = requests.post(media_url, headers=media_headers, files=files)
+        # Coba upload ke media manager
+        media_endpoint = f"{joomla_url}/media/files/images"
+        res_media = requests.post(media_endpoint, headers=media_headers, files=files)
         
         if res_media.status_code in [200, 201]:
             try:
@@ -135,10 +137,12 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             except Exception:
                 pass
 
-    # Buat Artikel Baru (menggunakan endpoint query com_content)
+    # 2. Format Payload Resmi Joomla 5 REST API
+    alias_clean = re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-"))
+    
     payload = {
         "title": title,
-        "alias": re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-")),
+        "alias": alias_clean,
         "articletext": html_content,
         "catid": int(cat_id),
         "state": 1,
@@ -146,17 +150,24 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         "language": "*"
     }
     
-    article_url = f"{joomla_url}?option=com_content&task=article.add"
-    res_article = requests.post(article_url, headers=headers, json=payload)
+    # Target Endpoint Utama
+    primary_url = f"{joomla_url}/content/articles"
+    res_article = requests.post(primary_url, headers=headers, json=payload)
     
-    # Pengamanan Parsing Response
+    # 3. Jika Dapat 404 (Server BMKG Memblokir Routing Path), Jalankan Fallback Endpoint Query
+    if res_article.status_code == 404:
+        base_domain = joomla_url.split("/api/")[0]
+        fallback_url = f"{base_domain}/api/index.php?option=com_content&task=article.add"
+        res_article = requests.post(fallback_url, headers=headers, json=payload)
+
+    # 4. Safe Response Parsing
     try:
         response_data = res_article.json()
     except Exception:
-        response_data = {"status_code": res_article.status_code, "text": res_article.text[:200]}
+        response_data = {"status_code": res_article.status_code, "text": res_article.text[:300]}
         
     return res_article.status_code in [200, 201], response_data
-
+    
 # --- TAMPILAN APLIKASI STREAMLIT ---
 doc_url = st.text_input("Link Google Docs:")
 article_title = st.text_input("Judul Artikel:")
