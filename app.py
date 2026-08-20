@@ -8,28 +8,26 @@ from googleapiclient.discovery import build
 st.set_page_config(page_title="GDocs to Joomla Publisher", page_icon="🚀", layout="centered")
 
 st.title("🚀 Auto-Publisher GDocs ke Joomla 5")
-st.caption("Pilih Author & Kategori langsung dari Joomla")
+st.caption("BMKG GAW Bariri - Powered by Gemini AI & Streamlit")
 
 # --- 1. FUNGSI FETCH DATA DARI JOOMLA API ---
-@st.cache_data(ttl=300)  # Cache hasil selama 5 menit agar aplikasi tidak lambat
+@st.cache_data(ttl=300)
 def get_joomla_users(joomla_url, joomla_token):
     headers = {"Authorization": f"Bearer {joomla_token}"}
-    url = f"{joomla_url}/users"
+    url = f"{joomla_url}?option=com_users&task=users"
     res = requests.get(url, headers=headers)
     if res.status_code == 200:
         data = res.json().get("data", [])
-        # Kembalikan dict format { 'Nama (username)': id }
         return {f"{u['attributes']['name']} (@{u['attributes']['username']})": u['id'] for u in data}
     return {}
 
 @st.cache_data(ttl=300)
 def get_joomla_categories(joomla_url, joomla_token):
     headers = {"Authorization": f"Bearer {joomla_token}"}
-    url = f"{joomla_url}/content/categories"
+    url = f"{joomla_url}?option=com_categories&extension=com_content"
     res = requests.get(url, headers=headers)
     if res.status_code == 200:
         data = res.json().get("data", [])
-        # Kembalikan dict format { 'Nama Kategori': id }
         return {c['attributes']['title']: c['id'] for c in data}
     return {}
 
@@ -91,7 +89,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_img_{idx}.jpg"
         files = {'file': (filename, img_bytes, 'image/jpeg')}
-        media_url = f"{joomla_url}/media/files/images"
+        media_url = f"{joomla_url}?option=com_media&task=files"
         
         res_media = requests.post(media_url, headers=headers, files=files)
         if res_media.status_code in [200, 201]:
@@ -110,14 +108,12 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         "language": "*"
     }
     
-    article_url = f"{joomla_url}/content/articles"
+    article_url = f"{joomla_url}?option=com_content&task=articles"
     res_article = requests.post(article_url, headers=headers, json=payload)
     return res_article.status_code in [200, 201], res_article.json()
 
 
-# --- TAMPILAN UNTUK STREAMLIT ---
-
-# Ambill data User & Category dari Joomla via API
+# --- TAMPILAN APLIKASI STREAMLIT ---
 try:
     joomla_url = st.secrets["JOOMLA_URL"]
     joomla_token = st.secrets["JOOMLA_TOKEN"]
