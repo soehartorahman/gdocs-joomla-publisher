@@ -10,28 +10,58 @@ st.set_page_config(page_title="GDocs to Joomla Publisher", page_icon="🚀", lay
 st.title("🚀 Auto-Publisher GDocs ke Joomla 5")
 st.caption("BMKG GAW Bariri - Powered by Gemini AI & Streamlit")
 
-# --- 1. FUNGSI FETCH DATA DARI JOOMLA API ---
-@st.cache_data(ttl=300)
-def get_joomla_users(joomla_url, joomla_token):
-    headers = {"Authorization": f"Bearer {joomla_token}"}
-    url = f"{joomla_url}?option=com_users&task=users"
-    res = requests.get(url, headers=headers)
-    if res.status_code == 200:
-        data = res.json().get("data", [])
-        return {f"{u['attributes']['name']} (@{u['attributes']['username']})": u['id'] for u in data}
-    return {}
+# --- DAFTAR USER LENGKAP (Nama: ID) ---
+USERS_DICT = {
+    "Administrator (admin)": 348,
+    "Dian Paolo, S.Tr.Klim.": 359,
+    "Galih Langit Pamungkas, S.Tr.Klim.": 362,
+    "Henri Panggabean, S.Si": 357,
+    "Hermanto Asima Nainggolan, S.Tr.": 363,
+    "Laura Prastika,S.Tr": 351,
+    "Mudayu Ekaning Prastiwi, S.Tr.Klim.": 355,
+    "Muh.Soeharto Dwi Putra Rahman, S.Tr": 358,
+    "Muhammad Hafizh Suwandi, S.Tr.Klim.": 349,
+    "Santy Wulandari S.Tr": 360,
+    "Solih Alfiandy,S.Tr": 353,
+    "➕ Input Manual ID User Baru...": -1
+}
 
-@st.cache_data(ttl=300)
-def get_joomla_categories(joomla_url, joomla_token):
-    headers = {"Authorization": f"Bearer {joomla_token}"}
-    url = f"{joomla_url}?option=com_categories&extension=com_content"
-    res = requests.get(url, headers=headers)
-    if res.status_code == 200:
-        data = res.json().get("data", [])
-        return {c['attributes']['title']: c['id'] for c in data}
-    return {}
+# --- DAFTAR KATEGORI LENGKAP (Nama: ID) ---
+CATEGORIES_DICT = {
+    "Iklim": 8,
+    "Fakta Perubahan Iklim": 29,
+    "Kimia Atmosfer": 9,
+    "Profil": 10,
+    "Berita": 11,
+    "Karya Tulis": 12,
+    "data iklim 2019": 13,
+    "data iklim 2018": 14,
+    "Musim": 15,
+    "Buletin Bulanan": 16,
+    "Cuaca": 17,
+    "Gempabumi": 18,
+    "Info Zona Integritas": 19,
+    "Selengkapnya Tentang Zona Integritas": 21,
+    "Dasboard": 23,
+    "Artikel": 24,
+    "Laporan Akuntabilitas Kinerja": 25,
+    "Laporan Akuntansi Kinerja Instansi Pemerintah": 26,
+    "GAW-sarium": 27,
+    "Buletin Tahunan": 28,
+    "Survei Kepuasan Masyarakat": 30,
+    "Kimia Air Hujan": 31,
+    "Analisis Hujan Bulanan": 32,
+    "Info PM": 33,
+    "FB Drag Helper": 34,
+    "Pegawai": 35,
+    "Peta Normal": 36,
+    "Kaleidoskop": 37,
+    "Zona Integritas": 38,
+    "Dokumen ZI": 39,
+    "➕ Input Manual ID Kategori Baru...": -1
+}
 
-# --- 2. FUNGSI EKSTRAK GOOGLE DOCS ---
+# --- 1. FUNGSI EKSTRAK GOOGLE DOCS ---
 def get_gdoc_data(doc_id, service_account_info):
     creds = service_account.Credentials.from_service_account_info(
         service_account_info, 
@@ -59,7 +89,7 @@ def get_gdoc_data(doc_id, service_account_info):
                     
     return text_content, images
 
-# --- 3. FUNGSI GEMINI AI ---
+# --- 2. FUNGSI GEMINI AI ---
 def format_with_gemini(raw_text, gemini_key):
     client = genai.Client(api_key=gemini_key)
     
@@ -76,12 +106,12 @@ def format_with_gemini(raw_text, gemini_key):
     """
     
     response = client.models.generate_content(
-        model='gemini-3.6-flash',
+        model='gemini-2.5-flash',
         contents=prompt,
     )
     return response.text
 
-# --- 4. FUNGSI PUBLISH JOOMLA ---
+# --- 3. FUNGSI PUBLISH JOOMLA ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
     headers = {"Authorization": f"Bearer {joomla_token}"}
     
@@ -114,35 +144,24 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
 
 
 # --- TAMPILAN APLIKASI STREAMLIT ---
-try:
-    joomla_url = st.secrets["JOOMLA_URL"]
-    joomla_token = st.secrets["JOOMLA_TOKEN"]
-    
-    users_dict = get_joomla_users(joomla_url, joomla_token)
-    categories_dict = get_joomla_categories(joomla_url, joomla_token)
-except Exception as e:
-    st.error("Gagal terhubung ke Joomla API. Periksa Secrets (JOOMLA_URL & JOOMLA_TOKEN).")
-    st.stop()
-
-# Form Input
 doc_url = st.text_input("Link Google Docs:")
 article_title = st.text_input("Judul Artikel:")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    if categories_dict:
-        selected_cat_name = st.selectbox("Pilih Kategori Artikel:", list(categories_dict.keys()))
-        cat_id = categories_dict[selected_cat_name]
+    selected_cat_name = st.selectbox("Pilih Kategori Artikel:", list(CATEGORIES_DICT.keys()))
+    if CATEGORIES_DICT[selected_cat_name] == -1:
+        cat_id = st.number_input("Masukkan ID Kategori Baru (Angka):", min_value=1, step=1, value=40)
     else:
-        cat_id = st.number_input("ID Kategori Joomla (Manual)", value=2)
+        cat_id = CATEGORIES_DICT[selected_cat_name]
 
 with col2:
-    if users_dict:
-        selected_user_name = st.selectbox("Pilih Author (User Administrator):", list(users_dict.keys()))
-        author_id = users_dict[selected_user_name]
+    selected_user_name = st.selectbox("Pilih Author (User Administrator):", list(USERS_DICT.keys()))
+    if USERS_DICT[selected_user_name] == -1:
+        author_id = st.number_input("Masukkan ID User Baru (Angka):", min_value=1, step=1, value=364)
     else:
-        author_id = st.number_input("ID User Author (Manual)", value=42)
+        author_id = USERS_DICT[selected_user_name]
 
 if st.button("Publish Artikel", type="primary"):
     if not doc_url or not article_title:
@@ -168,12 +187,12 @@ if st.button("Publish Artikel", type="primary"):
                     images, 
                     cat_id, 
                     author_id, 
-                    joomla_url, 
-                    joomla_token
+                    st.secrets["JOOMLA_URL"], 
+                    st.secrets["JOOMLA_TOKEN"]
                 )
 
             if success:
-                st.success(f"✅ Artikel berhasil terbit dengan Author ID: {author_id}!")
+                st.success(f"✅ Artikel berhasil terbit dengan Author ID: {author_id} pada Kategori ID: {cat_id}!")
                 st.balloons()
             else:
                 st.error(f"Gagal publish: {response}")
