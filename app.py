@@ -89,7 +89,7 @@ def get_gdoc_data(doc_id, service_account_info):
                     
     return text_content, images
 
-# --- 2. FUNGSI GEMINI AI ---
+# --- 2. FUNGSI GEMINI AI (Gemini 3.6) ---
 def format_with_gemini(raw_text, gemini_key):
     client = genai.Client(api_key=gemini_key)
     
@@ -97,7 +97,7 @@ def format_with_gemini(raw_text, gemini_key):
     Ubah teks draf artikel berikut menjadi format HTML artikel blog yang rapi.
     
     Aturan:
-    1. Gunakan tag HTML seperti <h2>, 3, <p>, <ul>, <li>, <strong>.
+    1. Gunakan tag HTML seperti <h2>, <h3>, <p>, <ul>, <li>, <strong>.
     2. JANGAN hapus atau ubah tag placeholder gambar seperti [IMAGE_PLACEHOLDER_1], [IMAGE_PLACEHOLDER_2], dst.
     3. Kembalikan HANYA kode HTML tanpa format markdown (jangan gunakan ```html).
 
@@ -204,6 +204,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
                 "articletext": html_content,
                 "catid": int(cat_id),
                 "state": 1,
+                "created_by": int(author_id),
                 "language": "*"
             }
         }
