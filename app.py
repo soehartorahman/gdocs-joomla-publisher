@@ -112,8 +112,8 @@ def format_with_gemini(raw_text, gemini_key):
     return response.text
 
 # --- 3. FUNGSI PUBLISH JOOMLA ---
+# --- FUNGSI PUBLISH DENGAN CONSOLE DEBUGGER ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    # Base URL mengarah ke /api/index.php/v1
     base_clean = joomla_url.rstrip("/")
     if "index.php" not in base_clean:
         api_endpoint = f"{base_clean}/index.php/v1"
@@ -124,7 +124,6 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
 
     token_clean = joomla_token.strip()
 
-    # Sertakan dua jenis header otentikasi (X-Joomla-Token & Bearer) untuk memastikan ketersediaan
     headers = {
         "X-Joomla-Token": token_clean,
         "Authorization": f"Bearer {token_clean}",
@@ -132,11 +131,37 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         "Accept": "application/vnd.api+json"
     }
 
-    # 1. Bersihkan Alias
-    alias_clean = re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-"))
+    # Wadah Log Debugger
+    logs = []
+    logs.append(f"🔍 **BASE API ENDPOINT:** `{api_endpoint}`")
 
-    # 2. Payload Ketat REST API Joomla 5 (JSON:API Standard)
-    # Memastikan catid murni bernilai Integer
+    # 1. CEK UPLOAD GAMBAR (Diisolasi dengan TRY-EXCEPT agar tidak menghentikan artikel)
+    for idx, img_bytes in enumerate(images, start=1):
+        filename = f"article_img_{idx}.jpg"
+        files = {'file': (filename, img_bytes, 'image/jpeg')}
+        media_headers = {
+            "X-Joomla-Token": token_clean,
+            "Authorization": f"Bearer {token_clean}",
+            "Accept": "application/vnd.api+json"
+        }
+        
+        media_url = f"{api_endpoint}/media/files"
+        try:
+            res_media = requests.post(media_url, headers=media_headers, files=files, timeout=15)
+            logs.append(f"🖼️ **Media {idx} Status:** `{res_media.status_code}` | **URL:** `{media_url}`")
+            
+            if res_media.status_code in [200, 201]:
+                img_path = res_media.json()['data']['attributes']['path']
+                img_tag = f'<p><img src="/{img_path}" alt="Gambar Artikel {idx}" /></p>'
+                html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", img_tag)
+            else:
+                logs.append(f"⚠️ **Media {idx} Warning:** {res_media.text[:200]}")
+        except Exception as e:
+            logs.append(f"❌ **Media {idx} Exception:** `{str(e)}`")
+
+    # 2. PAYLOAD ARTIKEL
+    alias_clean = re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-"))
+    
     payload = {
         "data": {
             "type": "articles",
@@ -150,22 +175,26 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             }
         }
     }
-    
-    # 3. Kirim Request POST
+
+    logs.append(f"📦 **Payload JSON sent:**\n```json\n{payload}\n```")
+
+    # 3. POST ARTIKEL
     article_url = f"{api_endpoint}/content/articles"
-    res_article = requests.post(article_url, headers=headers, json=payload, timeout=30)
+    logs.append(f"🚀 **Target Post URL:** `{article_url}`")
     
+    res_article = requests.post(article_url, headers=headers, json=payload, timeout=30)
+    logs.append(f"📡 **Article Post Response Status:** `{res_article.status_code}`")
+
     try:
         response_data = res_article.json()
     except Exception:
         response_data = {
             "status_code": res_article.status_code,
-            "target_url": article_url,
-            "text": res_article.text[:300]
+            "text": res_article.text[:500]
         }
-        
-    return res_article.status_code in [200, 201], response_data
 
+    return res_article.status_code in [200, 201], response_data, logs
+    
 # --- TAMPILAN APLIKASI STREAMLIT ---
 doc_url = st.text_input("Link Google Docs:")
 article_title = st.text_input("Judul Artikel:")
@@ -204,7 +233,7 @@ if st.button("Publish Artikel", type="primary"):
                 formatted_html = format_with_gemini(raw_text, st.secrets["GEMINI_API_KEY"])
 
             with st.spinner("3/3 Upload ke Joomla 5..."):
-                success, response = publish_to_joomla(
+                success, response, debug_logs = publish_to_joomla(
                     article_title, 
                     formatted_html, 
                     images, 
@@ -213,6 +242,11 @@ if st.button("Publish Artikel", type="primary"):
                     st.secrets["JOOMLA_URL"], 
                     st.secrets["JOOMLA_TOKEN"]
                 )
+
+            # TAMPILKAN KOTAK CONSOLE DEBUGGER KETIKA SESEORANG KLIK PUBLISH
+            with st.expander("🛠️ Klik di sini untuk melihat Console Logs (Detail Titik Error)", expanded=True):
+                for log in debug_logs:
+                    st.markdown(log)
 
             if success:
                 st.success(f"✅ Artikel berhasil terbit dengan Author ID: {author_id} pada Kategori ID: {cat_id}!")
