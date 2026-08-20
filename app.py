@@ -111,20 +111,18 @@ def format_with_gemini(raw_text, gemini_key):
     )
     return response.text
 
-# --- 3. FUNGSI PUBLISH JOOMLA (Aman dari Blokir Server BMKG) ---
+# --- 3. FUNGSI PUBLISH JOOMLA (DUAL-ENDPOINT FAILOVER) ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    # Pastikan Base URL mengarah murni ke index.php tanpa subfolder /v1
-    base_url = joomla_url.split('/v1')[0].rstrip('/')
-    if not base_url.endswith('index.php'):
-        base_url = f"{base_url}/index.php"
-
+    # Dapatkan domain utama
+    base_domain = joomla_url.split('/api')[0].rstrip('/')
+    
     headers = {
         "Authorization": f"Bearer {joomla_token}",
         "Content-Type": "application/json",
         "Accept": "application/vnd.api+json"
     }
     
-    # 1. Upload Media / Gambar (Jika Ada)
+    # 1. Upload Media / Gambar
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_img_{idx}.jpg"
         files = {'file': (filename, img_bytes, 'image/jpeg')}
@@ -133,7 +131,8 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             "Accept": "application/vnd.api+json"
         }
         
-        media_endpoint = f"{base_url}?option=com_media&task=file.upload"
+        # Endpoint Media Resmi Joomla 5
+        media_endpoint = f"{base_domain}/api/index.php/v1/media/files/images"
         res_media = requests.post(media_endpoint, headers=media_headers, files=files)
         
         if res_media.status_code in [200, 201]:
@@ -162,17 +161,21 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         }
     }
     
-    # 3. Request ke Endpoint Artikel via Query Parameter
-    article_url = f"{base_url}?option=com_content&task=article.add"
+    # 3. Percobaan Pertama: Standard REST API Endpoint Joomla 5
+    article_url = f"{base_domain}/api/index.php/v1/content/articles"
     res_article = requests.post(article_url, headers=headers, json=payload)
     
-    # Safe Response Parsing
+    # Percobaan Kedua (Fallback): Jika Server Melempar 404, Gunakan Endpoint Direct Index
+    if res_article.status_code == 404:
+        fallback_url = f"{base_domain}/api/v1/content/articles"
+        res_article = requests.post(fallback_url, headers=headers, json=payload)
+
+    # Safe JSON Response Parsing
     try:
         response_data = res_article.json()
     except Exception:
         response_data = {
             "status_code": res_article.status_code,
-            "url_terpanggil": article_url,
             "text": res_article.text[:300]
         }
         
