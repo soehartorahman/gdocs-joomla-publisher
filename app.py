@@ -113,21 +113,28 @@ def format_with_gemini(raw_text, gemini_key):
 
 # --- 3. FUNGSI PUBLISH JOOMLA ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    headers = {"Authorization": f"Bearer {joomla_token}"}
+    headers = {
+        "Authorization": f"Bearer {joomla_token}",
+        "Content-Type": "application/json"
+    }
     
     # Upload Gambar
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_img_{idx}.jpg"
         files = {'file': (filename, img_bytes, 'image/jpeg')}
-        media_url = f"{joomla_url}?option=com_media&task=files"
+        media_headers = {"Authorization": f"Bearer {joomla_token}"}
+        media_url = f"{joomla_url}?option=com_media&task=file.upload"
         
-        res_media = requests.post(media_url, headers=headers, files=files)
+        res_media = requests.post(media_url, headers=media_headers, files=files)
         if res_media.status_code in [200, 201]:
-            img_path = res_media.json()['data']['attributes']['path']
-            img_tag = f'<p><img src="/{img_path}" alt="Gambar Artikel {idx}" /></p>'
-            html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", img_tag)
+            try:
+                img_path = res_media.json()['data']['attributes']['path']
+                img_tag = f'<p><img src="/{img_path}" alt="Gambar Artikel {idx}" /></p>'
+                html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", img_tag)
+            except Exception:
+                pass
 
-    # Buat Artikel
+    # Buat Artikel Baru
     payload = {
         "title": title,
         "alias": re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-")),
@@ -138,8 +145,16 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         "language": "*"
     }
     
-    article_url = f"{joomla_url}?option=com_content&task=articles"
+    # Endpoint penambahan artikel resmi Joomla REST API
+    article_url = f"{joomla_url}?option=com_content&task=article.add"
+    
     res_article = requests.post(article_url, headers=headers, json=payload)
+    
+    # Jika endpoint task=article.add masih 404, fallback ke endpoint standar REST API v1
+    if res_article.status_code == 404:
+        fallback_url = "https://gaw-bariri.bmkg.go.id/api/index.php/v1/content/articles"
+        res_article = requests.post(fallback_url, headers=headers, json=payload)
+
     return res_article.status_code in [200, 201], res_article.json()
 
 
