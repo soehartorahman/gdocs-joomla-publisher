@@ -113,7 +113,9 @@ def format_with_gemini(raw_text, gemini_key):
 
 # --- 3. FUNGSI PUBLISH JOOMLA ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    # Header wajib REST API Joomla 5
+    # Bersihkan URL dari trailing slash
+    base_url = joomla_url.rstrip('/')
+    
     headers = {
         "Authorization": f"Bearer {joomla_token}",
         "Content-Type": "application/json",
@@ -129,7 +131,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             "Accept": "application/vnd.api+json"
         }
         
-        media_endpoint = f"{joomla_url}/media/files/images"
+        media_endpoint = f"{base_url}/media/files/images"
         res_media = requests.post(media_endpoint, headers=media_headers, files=files)
         
         if res_media.status_code in [200, 201]:
@@ -140,7 +142,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             except Exception:
                 pass
 
-    # 2. Payload Wajib Format JSON:API (data -> attributes)
+    # 2. Format Payload Wajib Joomla 5 (data -> attributes)
     alias_clean = re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-"))
     
     payload = {
@@ -158,14 +160,19 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         }
     }
     
-    # 3. Post ke Endpoint Artikel
-    article_url = f"{joomla_url}/content/articles"
+    # 3. Kirim ke Endpoint Artikel Resmi
+    article_url = f"{base_url}/content/articles"
     res_article = requests.post(article_url, headers=headers, json=payload)
     
+    # Safe Response Parsing (Mencegah Crash jika server kirim Non-JSON)
     try:
         response_data = res_article.json()
     except Exception:
-        response_data = {"status_code": res_article.status_code, "text": res_article.text[:300]}
+        response_data = {
+            "status_code": res_article.status_code, 
+            "url_terpanggil": article_url,
+            "text": res_article.text[:200]
+        }
         
     return res_article.status_code in [200, 201], response_data
     
