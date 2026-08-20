@@ -1,5 +1,4 @@
 import streamlit as st
-import json
 import re
 import requests
 from google import genai
@@ -62,7 +61,7 @@ CATEGORIES_DICT = {
     "➕ Input Manual ID Kategori Baru...": -1
 }
 
-# --- 1. FUNGSI EKSTRAK GOOGLE DOCS (TEXT & GAMBAR) ---
+# --- 1. EKSTRAK TEKS & GAMBAR DARI GOOGLE DOCS ---
 def get_gdoc_data(doc_id, service_account_info):
     creds = service_account.Credentials.from_service_account_info(
         service_account_info, 
@@ -90,7 +89,7 @@ def get_gdoc_data(doc_id, service_account_info):
                     
     return text_content, images
 
-# --- 2. FUNGSI GEMINI AI (Gemini 3.6) ---
+# --- 2. FORMAT TEKS DENGAN GEMINI AI ---
 def format_with_gemini(raw_text, gemini_key):
     client = genai.Client(api_key=gemini_key)
     
@@ -98,7 +97,7 @@ def format_with_gemini(raw_text, gemini_key):
     Ubah teks draf artikel berikut menjadi format HTML artikel blog yang rapi.
     
     Aturan:
-    1. Gunakan tag HTML seperti <h2>, <h3>, <p>, <ul>, <li>, <strong>.
+    1. Gunakan tag HTML standar seperti <h2>, <h3>, <p>, <ul>, <li>, <strong>.
     2. JANGAN hapus atau ubah tag placeholder gambar seperti [IMAGE_PLACEHOLDER_1], [IMAGE_PLACEHOLDER_2], dst.
     3. Kembalikan HANYA kode HTML tanpa format markdown (jangan gunakan ```html).
 
@@ -107,53 +106,54 @@ def format_with_gemini(raw_text, gemini_key):
     """
     
     response = client.models.generate_content(
-        model='gemini-3.6-flash',
+        model='gemini-2.5-flash',
         contents=prompt,
     )
     return response.text
 
-# --- 3. HELPER: BUAT FOLDER DENGAN LOG DEBUG ---
-def ensure_joomla_folder(api_endpoint, folder_name, headers, logs):
-    safe_folder = re.sub(r'[^a-zA-Z0-9_-]', '', folder_name.strip().replace(" ", "-"))
-    if not safe_folder:
-        safe_folder = "Artikel"
-
-    # Fix Endpoint Media Folder Joomla 5 (Tanpa titik dua)
-    create_folder_url = f"{api_endpoint}/media/folders/local/images"
-    payload = {
-        "name": safe_folder,
-        "parent": "local/images"
-    }
-
-    try:
-        res = requests.post(create_folder_url, headers=headers, json=payload, timeout=10)
-        logs.append(f"📁 **Status Buat Folder (`images/{safe_folder}`):** `{res.status_code}`")
-    except Exception as e:
-        logs.append(f"⚠️ **Folder Warning/Exception:** `{str(e)}`")
-
-    return safe_folder
-
-# --- 4. FUNGSI PUBLISH UTAMA (FIXED PAYLOAD JOOMLA 5) ---
-def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token, selected_cat_name):
-    # Direct Endpoint ke file push.php yang baru dibuat
-    endpoint_url = "https://gaw-bariri.bmkg.go.id/api/push.php"
-
+# --- 3. PUBLISH KE JOOMLA VIA PUSH.PHP ---
+def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
+    base_domain = "[https://gaw-bariri.bmkg.go.id](https://gaw-bariri.bmkg.go.id)"
+    endpoint_url = f"{base_domain}/api/push.php"
     token_clean = joomla_token.strip()
-
-    headers = {
-        "X-Joomla-Token": token_clean,
-        "Content-Type": "application/json"
-    }
 
     logs = []
     logs.append(f"🔍 **DIRECT BRIDGE ENDPOINT:** `{endpoint_url}`")
 
-    # Sanitasi Alias
-    clean_title = str(title).replace("–", "-").replace("—", "-").strip()
+    # A. UPLOAD GAMBAR KE JOOMLA & GANTI PLACEHOLDER
+    for idx, img_bytes in enumerate(images, start=1):
+        filename = f"article_{cat_id}_{idx}.jpg"
+        
+        # Endpoint upload media Joomla
+        upload_media_url = f"{base_domain}/api/index.php/v1/media/files/local/images/Artikel"
+        files = {'file': (filename, img_bytes, 'image/jpeg')}
+        media_headers = {
+            "X-Joomla-Token": token_clean,
+            "Authorization": f"Bearer {token_clean}",
+            "Accept": "application/vnd.api+json"
+        }
+        
+        try:
+            res_media = requests.post(upload_media_url, headers=media_headers, files=files, timeout=15)
+            logs.append(f"🖼️ **Upload Gambar {idx} Status:** `{res_media.status_code}`")
+        except Exception as e:
+            logs.append(f"⚠️ **Upload Gambar {idx} Exception:** `{str(e)}`")
+
+        # Buat tag img HTML dengan Absolute Domain URL agar pasti muncul di web
+        img_src_url = f"{base_domain}/images/Artikel/{filename}"
+        img_tag = f'<p style="text-align: center;"><img src="{img_src_url}" alt="{title}" class="img-fluid rounded my-3" /></p>'
+        
+        # Replace Placeholder
+        html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", img_tag)
+
+    # B. SANITASI TITLE & ALIAS
+    clean_title = re.sub(r'[\xa0\t\n\r]', ' ', str(title)).strip()
+    clean_title = clean_title.replace("–", "-").replace("—", "-")
+    
     alias_clean = re.sub(r'[^a-z0-9-]', '', clean_title.lower().replace(" ", "-").replace(":", ""))
     alias_clean = re.sub(r'-+', '-', alias_clean).strip('-')
 
-    # Payload Sederhana Langsung ke Table Joomla
+    # C. FORMULA PAYLOAD JSON
     payload = {
         "title": clean_title,
         "alias": alias_clean,
@@ -163,6 +163,12 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     }
 
     logs.append(f"📦 **Payload Sent to Bridge:**\n```json\n{payload}\n```")
+
+    # D. KIRIM KE PUSH.PHP
+    headers = {
+        "X-Joomla-Token": token_clean,
+        "Content-Type": "application/json"
+    }
 
     res = requests.post(endpoint_url, headers=headers, json=payload, timeout=30)
     logs.append(f"📡 **Bridge Response Status:** `{res.status_code}`")
@@ -174,7 +180,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
 
     return res.status_code in [200, 201], response_data, logs
 
-# --- TAMPILAN APLIKASI STREAMLIT ---
+# --- INTERFACE STREAMLIT ---
 doc_url = st.text_input("Link Google Docs:")
 article_title = st.text_input("Judul Artikel:")
 
@@ -183,14 +189,14 @@ col1, col2 = st.columns(2)
 with col1:
     selected_cat_name = st.selectbox("Pilih Kategori Artikel:", list(CATEGORIES_DICT.keys()))
     if CATEGORIES_DICT[selected_cat_name] == -1:
-        cat_id = st.number_input("Masukkan ID Kategori Baru (Angka):", min_value=1, step=1, value=40)
+        cat_id = st.number_input("Masukkan ID Kategori Baru (Angka):", min_value=1, step=1, value=24)
     else:
         cat_id = CATEGORIES_DICT[selected_cat_name]
 
 with col2:
     selected_user_name = st.selectbox("Pilih Author (User Administrator):", list(USERS_DICT.keys()))
     if USERS_DICT[selected_user_name] == -1:
-        author_id = st.number_input("Masukkan ID User Baru (Angka):", min_value=1, step=1, value=364)
+        author_id = st.number_input("Masukkan ID User Baru (Angka):", min_value=1, step=1, value=348)
     else:
         author_id = USERS_DICT[selected_user_name]
 
@@ -211,7 +217,7 @@ if st.button("Publish Artikel", type="primary"):
             with st.spinner("2/3 Formatting dengan Gemini AI..."):
                 formatted_html = format_with_gemini(raw_text, st.secrets["GEMINI_API_KEY"])
 
-            with st.spinner("3/3 Upload ke Joomla 5..."):
+            with st.spinner("3/3 Upload & Publish ke Joomla 5..."):
                 success, response, debug_logs = publish_to_joomla(
                     article_title, 
                     formatted_html, 
@@ -219,17 +225,16 @@ if st.button("Publish Artikel", type="primary"):
                     cat_id, 
                     author_id, 
                     st.secrets["JOOMLA_URL"], 
-                    st.secrets["JOOMLA_TOKEN"],
-                    selected_cat_name
+                    st.secrets["JOOMLA_TOKEN"]
                 )
 
-            # RENDER KOTAK DEBUGGER CONSOLE
+            # CONSOLE LOGS DEBUGGER
             with st.expander("🛠️ Klik di sini untuk melihat Console Logs (Detail Titik Error)", expanded=True):
                 for log in debug_logs:
                     st.markdown(log)
 
             if success:
-                st.success("✅ Artikel berhasil terbit!")
+                st.success("✅ Artikel berhasil terbit dan langsung tayang di website!")
                 st.balloons()
             else:
                 st.error(f"Gagal publish: {response}")
