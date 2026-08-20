@@ -145,31 +145,33 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
 
     token_clean = joomla_token.strip()
 
-    # Header Resmi JSON:API
     headers = {
         "X-Joomla-Token": token_clean,
         "Authorization": f"Bearer {token_clean}",
-        "Content-Type": "application/vnd.api+json",
+        "Content-Type": "application/json",
         "Accept": "application/vnd.api+json"
     }
 
     logs = []
     logs.append(f"🔍 **BASE API ENDPOINT:** `{api_endpoint}`")
 
-    # 1. SANITASI TITLE & ALIAS
-    clean_title = str(title).replace("–", "-").replace("—", "-").strip()
+    # 1. SANITASI JUDUL & ALIAS (Hapus karakter non-breaking space & simbol aneh)
+    clean_title = re.sub(r'[\xa0\t\n\r]', ' ', str(title)).strip()
+    clean_title = clean_title.replace("–", "-").replace("—", "-")
+    
     alias_clean = re.sub(r'[^a-z0-9-]', '', clean_title.lower().replace(" ", "-").replace(":", ""))
     alias_clean = re.sub(r'-+', '-', alias_clean).strip('-')
 
-    # 2. PAYLOAD LENGKAP ARTIKEL JOOMLA 5
+    # 2. PAYLOAD DENGAN FIELD KATEGORI GANDA (catid & category)
     payload = {
         "data": {
             "type": "articles",
             "attributes": {
                 "title": clean_title,
                 "alias": alias_clean,
-                "articletext": html_content,
+                "articletext": str(html_content),
                 "catid": int(cat_id),
+                "category": int(cat_id), # Mengakomodasi validator versi com_content
                 "created_by": int(author_id),
                 "state": 1,
                 "language": "*"
@@ -177,7 +179,6 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         }
     }
 
-    # Serialisasi JSON secara eksplisit ke UTF-8 Bytes/String
     json_payload = json.dumps(payload)
     logs.append(f"📦 **Payload JSON Sent:**\n```json\n{payload}\n```")
 
@@ -185,7 +186,6 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     article_url = f"{api_endpoint}/content/articles"
     logs.append(f"🚀 **Target Post URL:** `{article_url}`")
 
-    # Mengirim data via 'data=' dengan json_payload murni
     res_article = requests.post(article_url, headers=headers, data=json_payload, timeout=30)
     logs.append(f"📡 **Article Post Response Status:** `{res_article.status_code}`")
 
