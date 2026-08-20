@@ -97,7 +97,7 @@ def format_with_gemini(raw_text, gemini_key):
     Ubah teks draf artikel berikut menjadi format HTML artikel blog yang rapi.
     
     Aturan:
-    1. Gunakan tag HTML seperti <h2>, <h3>, <p>, <ul>, <li>, <strong>.
+    1. Gunakan tag HTML seperti <h2>, 3, <p>, <ul>, <li>, <strong>.
     2. JANGAN hapus atau ubah tag placeholder gambar seperti [IMAGE_PLACEHOLDER_1], [IMAGE_PLACEHOLDER_2], dst.
     3. Kembalikan HANYA kode HTML tanpa format markdown (jangan gunakan ```html).
 
@@ -111,8 +111,7 @@ def format_with_gemini(raw_text, gemini_key):
     )
     return response.text
 
-# --- 3. FUNGSI PUBLISH JOOMLA ---
-# --- 1. HELPER: BUAT FOLDER DENGAN LOG DEBUG ---
+# --- 3. HELPER: BUAT FOLDER DENGAN LOG DEBUG ---
 def ensure_joomla_folder(api_endpoint, folder_name, headers, logs):
     safe_folder = re.sub(r'[^a-zA-Z0-9_-]', '', folder_name.strip().replace(" ", "-"))
     if not safe_folder:
@@ -132,8 +131,7 @@ def ensure_joomla_folder(api_endpoint, folder_name, headers, logs):
 
     return safe_folder
 
-
-# --- 2. FUNGSI PUBLISH UTAMA DENGAN DEBUGGER LENGKAP ---
+# --- 4. FUNGSI PUBLISH UTAMA DENGAN DEBUGGER LENGKAP ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token, selected_cat_name):
     base_clean = joomla_url.rstrip("/")
     if "index.php" not in base_clean:
@@ -226,7 +224,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         response_data = {"status_code": res_article.status_code, "text": res_article.text[:500]}
 
     return res_article.status_code in [200, 201], response_data, logs
-    
+
 # --- TAMPILAN APLIKASI STREAMLIT ---
 doc_url = st.text_input("Link Google Docs:")
 article_title = st.text_input("Judul Artikel:")
@@ -277,14 +275,15 @@ if st.button("Publish Artikel", type="primary"):
                 )
 
             # RENDER KOTAK DEBUGGER CONSOLE
-             with st.expander("🛠️ Klik di sini untuk melihat Console Logs (Detail Titik Error)", expanded=True):
+            with st.expander("🛠️ Klik di sini untuk melihat Console Logs (Detail Titik Error)", expanded=True):
                 for log in debug_logs:
-                st.markdown(log)
+                    st.markdown(log)
 
-             if success:
+            if success:
                 st.success("✅ Artikel berhasil terbit!")
                 st.balloons()
-             else:
+            else:
                 st.error(f"Gagal publish: {response}")
-             except Exception as e:
-                st.error(f"Error: {str(e)}")
+
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
