@@ -113,6 +113,7 @@ def format_with_gemini(raw_text, gemini_key):
 
 # --- 3. FUNGSI PUBLISH JOOMLA ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
+    # Pastikan URL mengarah ke entry point API
     base_url = joomla_url.split('/v1')[0].rstrip('/')
     if not base_url.endswith('index.php'):
         base_url = f"{base_url}/index.php"
@@ -123,7 +124,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         "Accept": "application/vnd.api+json"
     }
     
-    # 1. Upload Media / Gambar (jika ada)
+    # 1. Upload Media / Gambar (Jika Ada)
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_img_{idx}.jpg"
         files = {'file': (filename, img_bytes, 'image/jpeg')}
@@ -143,7 +144,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             except Exception:
                 pass
 
-    # 2. Payload Standar JSON:API Joomla 5
+    # 2. Format Payload Resmi REST API Joomla 5
     alias_clean = re.sub(r'[^a-zA-Z0-9-]', '', title.lower().replace(" ", "-"))
     
     payload = {
@@ -161,22 +162,16 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         }
     }
     
-    # 3. Request ke Endpoint Query API Joomla 5 (Aman dari Blokir 404 Apache)
+    # 3. Request ke Endpoint Artikel Query
     article_url = f"{base_url}?option=com_content&task=article.add"
     res_article = requests.post(article_url, headers=headers, json=payload)
     
-    # Fallback jika task=article.add ditolak router internal
-    if res_article.status_code == 404:
-        article_url = f"{base_url}?option=com_content&task=articles"
-        res_article = requests.post(article_url, headers=headers, json=payload)
-
-    # Safe JSON Response Parsing
+    # Safe Response Parsing
     try:
         response_data = res_article.json()
     except Exception:
         response_data = {
-            "status_code": res_article.status_code, 
-            "url_terpanggil": article_url,
+            "status_code": res_article.status_code,
             "text": res_article.text[:300]
         }
         
