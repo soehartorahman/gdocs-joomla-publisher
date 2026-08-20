@@ -264,7 +264,7 @@ if st.button("Publish Artikel", type="primary"):
             with st.spinner("2/3 Formatting dengan Gemini AI..."):
                 formatted_html = format_with_gemini(raw_text, st.secrets["GEMINI_API_KEY"])
 
-           with st.spinner("3/3 Upload ke Joomla 5..."):
+            with st.spinner("3/3 Upload ke Joomla 5..."):
                 success, response, debug_logs = publish_to_joomla(
                     article_title, 
                     formatted_html, 
@@ -277,14 +277,14 @@ if st.button("Publish Artikel", type="primary"):
                 )
 
             # RENDER KOTAK DEBUGGER CONSOLE
-            with st.expander("🛠️ Klik di sini untuk melihat Console Logs (Detail Titik Error)", expanded=True):
+             with st.expander("🛠️ Klik di sini untuk melihat Console Logs (Detail Titik Error)", expanded=True):
                 for log in debug_logs:
                 st.markdown(log)
 
-            if success:
+             if success:
                 st.success("✅ Artikel berhasil terbit!")
                 st.balloons()
-            else:
+             else:
                 st.error(f"Gagal publish: {response}")
-            except Exception as e:
+             except Exception as e:
                 st.error(f"Error: {str(e)}")
