@@ -65,6 +65,16 @@ CATEGORIES_DICT = {
     "➕ Input Manual ID Kategori Baru...": -1
 }
 
+# --- BACKGROUND TRIGGER PEMBERSIS CACHE/REBUILD ASSET ---
+def auto_trigger_joomla_cache(delay_seconds, bridge_url, token):
+    """Menunggu durasi delay, lalu menembak push.php untuk memicu pembersihan cache."""
+    time.sleep(delay_seconds)
+    headers = {"X-Joomla-Token": token}
+    try:
+        requests.get(f"{bridge_url}?action=clear_cache", headers=headers, timeout=15)
+    except Exception:
+        pass
+
 # --- 1. EKSTRAK TEKS & GAMBAR DARI GOOGLE DOCS ---
 def get_gdoc_data(doc_id, service_account_info):
     creds = service_account.Credentials.from_service_account_info(
@@ -117,7 +127,7 @@ def format_with_gemini(raw_text, gemini_key):
 
 # --- 3. PUBLISH KE JOOMLA VIA PUSH.PHP ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    base_domain = "https://gaw-bariri.bmkg.go.id"
+    base_domain = "[https://gaw-bariri.bmkg.go.id](https://gaw-bariri.bmkg.go.id)"
     endpoint_url = f"{base_domain}/api/push.php".strip()
     token_clean = joomla_token.strip()
 
@@ -155,7 +165,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     alias_clean = re.sub(r'-+', '-', alias_clean).strip('-')
     alias_clean = f"{alias_clean}-{int(now_dt.timestamp())}"
 
-    # C. FORMULA WAKTU (PUBLISH DATE DIBERI JEDA 3 MENIT LEBIH MUNDUR/DELAY)
+    # C. FORMULA WAKTU (PUBLISH DATE DIBERI JEDA 3 MENIT/PENDING)
     created_time = now_dt.strftime("%Y-%m-%d %H:%M:%S")
     publish_up_time = (now_dt + datetime.timedelta(minutes=3)).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -185,8 +195,15 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     except Exception:
         response_data = {"status_code": res.status_code, "text": res.text[:500]}
 
+    # E. PEMICU BACKGROUND THREAD (Membangunkan Joomla tepat 3 menit 10 detik kemudian)
+    if res.status_code in [200, 201]:
+        threading.Thread(
+            target=auto_trigger_joomla_cache, 
+            args=(190, endpoint_url, token_clean)
+        ).start()
+
     return res.status_code in [200, 201], response_data, logs
-    
+
 # --- INTERFACE STREAMLIT ---
 doc_url = st.text_input("Link Google Docs:")
 article_title = st.text_input("Judul Artikel:")
@@ -239,9 +256,13 @@ if st.button("Publish Artikel", type="primary"):
             with st.expander("🛠️ Klik di sini untuk melihat Console Logs (Detail Titik Error)", expanded=True):
                 for log in debug_logs:
                     st.markdown(log)
+                
+                if response:
+                    st.write("📊 **Detail Diagnostik Response JSON:**")
+                    st.json(response)
 
             if success:
-                st.success("✅ Artikel berhasil terbit dan langsung tayang di website!")
+                st.success("✅ Artikel berhasil dikirim dengan status Pending (akan terbit otomatis dalam 3 menit)!")
                 st.balloons()
             else:
                 st.error(f"Gagal publish: {response}")
