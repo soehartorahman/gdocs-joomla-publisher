@@ -1,4 +1,6 @@
 import streamlit as st
+import datetime
+import uuid
 import re
 import requests
 from google import genai
@@ -120,9 +122,13 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     logs = []
     logs.append(f"🔍 **DIRECT BRIDGE ENDPOINT:** `{endpoint_url}`")
 
+    # Generate timestamp unik untuk mencegah penimpaan file foto lama (Cache Fix)
+    unique_prefix = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
     # A. UPLOAD GAMBAR KE JOOMLA & GANTI PLACEHOLDER
     for idx, img_bytes in enumerate(images, start=1):
-        filename = f"article_{cat_id}_{idx}.jpg"
+        # Penamaan unik: article_20260910_080443_24_1.jpg
+        filename = f"article_{unique_prefix}_{cat_id}_{idx}.jpg"
         
         upload_media_url = f"{base_domain}/api/push.php".strip()
         files = {'file': (filename, img_bytes, 'image/jpeg')}
@@ -141,20 +147,25 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         
         html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", img_tag)
 
-    # B. SANITASI TITLE & ALIAS
+    # B. SANITASI TITLE & ALIAS (Ditambah Timestamp Unik)
     clean_title = re.sub(r'[\xa0\t\n\r]', ' ', str(title)).strip()
     clean_title = clean_title.replace("–", "-").replace("—", "-")
     
     alias_clean = re.sub(r'[^a-z0-9-]', '', clean_title.lower().replace(" ", "-").replace(":", ""))
     alias_clean = re.sub(r'-+', '-', alias_clean).strip('-')
+    alias_clean = f"{alias_clean}-{int(datetime.datetime.now().timestamp())}"
 
-    # C. FORMULA PAYLOAD JSON
+    # C. FORMULA PAYLOAD JSON (SINKRONISASI WAKTU UTC)
+    now_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
     payload = {
         "title": clean_title,
         "alias": alias_clean,
         "articletext": html_content,
         "catid": int(cat_id),
-        "created_by": int(author_id)
+        "created_by": int(author_id),
+        "created": now_utc,        # Mengunci created date ke UTC
+        "publish_up": now_utc      # Menyinkronkan publish date agar artikel langsung aktif
     }
 
     logs.append(f"📦 **Payload Sent to Bridge:**\n```json\n{payload}\n```")
@@ -173,7 +184,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     except Exception:
         response_data = {"status_code": res.status_code, "text": res.text[:500]}
 
-    return res.status_code in [200, 201], response_data, logs
+    return res_article.status_code in [200, 201] if 'res_article' in locals() else res.status_code in [200, 201], response_data, logs
     
 # --- INTERFACE STREAMLIT ---
 doc_url = st.text_input("Link Google Docs:")
