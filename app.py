@@ -126,10 +126,12 @@ def format_with_gemini(raw_text, gemini_key):
     return response.text
 
 # --- 3. PUBLISH KE JOOMLA VIA PUSH.PHP ---
+# --- 3. PUBLISH KE JOOMLA VIA PUSH.PHP ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    base_domain = "[https://gaw-bariri.bmkg.go.id](https://gaw-bariri.bmkg.go.id)"
+    # Pastikan URL bersih dari karakter tersembunyi / non-breaking space
+    base_domain = "https://gaw-bariri.bmkg.go.id".strip()
     endpoint_url = f"{base_domain}/api/push.php".strip()
-    token_clean = joomla_token.strip()
+    token_clean = str(joomla_token).strip()
 
     logs = []
     logs.append(f"🔍 **DIRECT BRIDGE ENDPOINT:** `{endpoint_url}`")
@@ -142,6 +144,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_{unique_timestamp}_{cat_id}_{idx}.jpg"
         
+        # Bersihkan URL upload media
         upload_media_url = f"{base_domain}/api/push.php".strip()
         files = {'file': (filename, img_bytes, 'image/jpeg')}
         media_headers = {"X-Joomla-Token": token_clean}
@@ -175,8 +178,8 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         "articletext": html_content,
         "catid": int(cat_id),
         "created_by": int(author_id),
-        "created": created_time,         # Waktu pembuatan artikel
-        "publish_up": publish_up_time    # Set 3 menit LEBIH MUNDUR (Delay/Pending 3 Menit)
+        "created": created_time,
+        "publish_up": publish_up_time
     }
 
     logs.append(f"📦 **Payload Sent to Bridge:**\n```json\n{payload}\n```")
@@ -187,7 +190,8 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         "Content-Type": "application/json"
     }
 
-    res = requests.post(endpoint_url, headers=headers, json=payload, timeout=30)
+    # Gunakan str(endpoint_url).strip() untuk menjamin tidak ada karakter aneh
+    res = requests.post(str(endpoint_url).strip(), headers=headers, json=payload, timeout=30)
     logs.append(f"📡 **Bridge Response Status:** `{res.status_code}`")
 
     try:
@@ -195,11 +199,11 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     except Exception:
         response_data = {"status_code": res.status_code, "text": res.text[:500]}
 
-    # E. PEMICU BACKGROUND THREAD (Membangunkan Joomla tepat 3 menit 10 detik kemudian)
+    # E. PEMICU BACKGROUND THREAD
     if res.status_code in [200, 201]:
         threading.Thread(
             target=auto_trigger_joomla_cache, 
-            args=(190, endpoint_url, token_clean)
+            args=(190, str(endpoint_url).strip(), token_clean)
         ).start()
 
     return res.status_code in [200, 201], response_data, logs
