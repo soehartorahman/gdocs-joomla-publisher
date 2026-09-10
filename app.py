@@ -104,17 +104,19 @@ def get_gdoc_data(doc_id, service_account_info):
                     
     return text_content, images
 
-# --- 2. FORMAT TEKS DENGAN GEMINI AI ---
+# --- 2. FORMAT TEKS DENGAN GEMINI AI (HAPUS JUDUL DARI GDOCS) ---
 def format_with_gemini(raw_text, gemini_key):
     client = genai.Client(api_key=gemini_key)
     
     prompt = f"""
     Ubah teks draf artikel berikut menjadi format HTML artikel blog yang rapi.
     
-    Aturan:
-    1. Gunakan tag HTML standar seperti <h2>, 3>, <p>, <ul>, <li>, <strong>.
-    2. JANGAN hapus atau ubah tag placeholder gambar seperti [IMAGE_PLACEHOLDER_1], [IMAGE_PLACEHOLDER_2], dst.
-    3. Kembalikan HANYA kode HTML tanpa format markdown (jangan gunakan ```html).
+    Aturan Penting:
+    1. HAPUS/BUANG teks judul artikel yang ada di dalam draf (baik posisi di atas maupun di bawah gambar pertama), karena judul sudah diinput secara terpisah.
+    2. JANGAN sertakan tag <h1> untuk judul di dalam body HTML hasil output.
+    3. Gunakan tag HTML standar seperti <h2>, <h3>, <p>, <ul>, <li>, <strong> untuk isi artikel.
+    4. SANGAT PENTING: JANGAN HAPUS atau merusak tag placeholder gambar seperti [IMAGE_PLACEHOLDER_1], [IMAGE_PLACEHOLDER_2], dst.
+    5. Kembalikan HANYA kode HTML tanpa format markdown (jangan gunakan ```html).
 
     Teks Asli:
     {raw_text}
@@ -128,8 +130,8 @@ def format_with_gemini(raw_text, gemini_key):
 
 # --- 3. PUBLISH KE JOOMLA VIA PUSH.PHP ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    # Dapatkan domain utama & bersihkan dari spasi/karakter tersembunyi
-    base_domain = str(joomla_url).strip().rstrip('/')
+    # Membersihkan URL dari /index.php dan trailing slash
+    base_domain = str(joomla_url).replace('/index.php', '').strip().rstrip('/')
     if not base_domain.startswith("http://") and not base_domain.startswith("https://"):
         base_domain = f"https://{base_domain}"
 
