@@ -112,7 +112,7 @@ def format_with_gemini(raw_text, gemini_key):
     Ubah teks draf artikel berikut menjadi format HTML artikel blog yang rapi.
     
     Aturan:
-    1. Gunakan tag HTML standar seperti <h2>, <h3>, <p>, <ul>, <li>, <strong>.
+    1. Gunakan tag HTML standar seperti <h2>, 3>, <p>, <ul>, <li>, <strong>.
     2. JANGAN hapus atau ubah tag placeholder gambar seperti [IMAGE_PLACEHOLDER_1], [IMAGE_PLACEHOLDER_2], dst.
     3. Kembalikan HANYA kode HTML tanpa format markdown (jangan gunakan ```html).
 
@@ -128,8 +128,12 @@ def format_with_gemini(raw_text, gemini_key):
 
 # --- 3. PUBLISH KE JOOMLA VIA PUSH.PHP ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    base_domain = "[https://gaw-bariri.bmkg.go.id](https://gaw-bariri.bmkg.go.id)".strip()
-    endpoint_url = f"{base_domain}/api/push.php".strip()
+    # Dapatkan domain utama & bersihkan dari spasi/karakter tersembunyi
+    base_domain = str(joomla_url).strip().rstrip('/')
+    if not base_domain.startswith("http://") and not base_domain.startswith("https://"):
+        base_domain = f"https://{base_domain}"
+
+    endpoint_url = f"{base_domain}/api/push.php"
     token_clean = str(joomla_token).strip()
 
     logs = []
@@ -144,12 +148,11 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_{unique_timestamp}_{cat_id}_{idx}.jpg"
         
-        upload_media_url = f"{base_domain}/api/push.php".strip()
         files = {'file': (filename, img_bytes, 'image/jpeg')}
         media_headers = {"X-Joomla-Token": token_clean}
         
         try:
-            res_media = requests.post(upload_media_url, headers=media_headers, files=files, timeout=15)
+            res_media = requests.post(endpoint_url, headers=media_headers, files=files, timeout=15)
             logs.append(f"🖼️ **Upload Gambar {idx} Status:** `{res_media.status_code}`")
         except Exception as e:
             logs.append(f"⚠️ **Upload Gambar {idx} Exception:** `{str(e)}`")
@@ -202,7 +205,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         "Content-Type": "application/json"
     }
 
-    res = requests.post(str(endpoint_url).strip(), headers=headers, json=payload, timeout=30)
+    res = requests.post(endpoint_url, headers=headers, json=payload, timeout=30)
     logs.append(f"📡 **Bridge Response Status:** `{res.status_code}`")
 
     try:
@@ -213,7 +216,7 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     if res.status_code in [200, 201]:
         threading.Thread(
             target=auto_trigger_joomla_cache, 
-            args=(190, str(endpoint_url).strip(), token_clean)
+            args=(190, endpoint_url, token_clean)
         ).start()
 
     return res.status_code in [200, 201], response_data, logs
