@@ -4,6 +4,7 @@ import uuid
 import threading
 import time
 import re
+import json
 import requests
 from google import genai
 from google.oauth2 import service_account
@@ -30,38 +31,38 @@ USERS_DICT = {
     "➕ Input Manual ID User Baru...": -1
 }
 
-# --- DAFTAR KATEGORI LENGKAP (Nama: ID) ---
+# --- DAFTAR KATEGORI LENGKAP (DIURUTKAN SESUAI ABJAD A-Z) ---
 CATEGORIES_DICT = {
-    "Iklim": 8,
-    "Fakta Perubahan Iklim": 29,
-    "Kimia Atmosfer": 9,
-    "Profil": 10,
-    "Berita": 11,
-    "Karya Tulis": 12,
-    "data iklim 2019": 13,
-    "data iklim 2018": 14,
-    "Musim": 15,
-    "Buletin Bulanan": 16,
-    "Cuaca": 17,
-    "Gempabumi": 18,
-    "Info Zona Integritas": 19,
-    "Selengkapnya Tentang Zona Integritas": 21,
-    "Dasboard": 23,
+    "Analisis Hujan Bulanan": 32,
     "Artikel": 24,
+    "Berita": 11,
+    "Buletin Bulanan": 16,
+    "Buletin Tahunan": 28,
+    "Cuaca": 17,
+    "Dasboard": 23,
+    "data iklim 2018": 14,
+    "data iklim 2019": 13,
+    "Dokumen ZI": 39,
+    "FB Drag Helper": 34,
+    "Fakta Perubahan Iklim": 29,
+    "GAW-sarium": 27,
+    "Gempabumi": 18,
+    "Iklim": 8,
+    "Info PM": 33,
+    "Info Zona Integritas": 19,
+    "Kaleidoskop": 37,
+    "Karya Tulis": 12,
+    "Kimia Air Hujan": 31,
+    "Kimia Atmosfer": 9,
     "Laporan Akuntabilitas Kinerja": 25,
     "Laporan Akuntansi Kinerja Instansi Pemerintah": 26,
-    "GAW-sarium": 27,
-    "Buletin Tahunan": 28,
-    "Survei Kepuasan Masyarakat": 30,
-    "Kimia Air Hujan": 31,
-    "Analisis Hujan Bulanan": 32,
-    "Info PM": 33,
-    "FB Drag Helper": 34,
+    "Musim": 15,
     "Pegawai": 35,
     "Peta Normal": 36,
-    "Kaleidoskop": 37,
+    "Profil": 10,
+    "Selengkapnya Tentang Zona Integritas": 21,
+    "Survei Kepuasan Masyarakat": 30,
     "Zona Integritas": 38,
-    "Dokumen ZI": 39,
     "➕ Input Manual ID Kategori Baru...": -1
 }
 
@@ -126,25 +127,23 @@ def format_with_gemini(raw_text, gemini_key):
     return response.text
 
 # --- 3. PUBLISH KE JOOMLA VIA PUSH.PHP ---
-# --- 3. PUBLISH KE JOOMLA VIA PUSH.PHP ---
 def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url, joomla_token):
-    # Pastikan URL bersih dari karakter tersembunyi / non-breaking space
-    base_domain = "https://gaw-bariri.bmkg.go.id".strip()
+    base_domain = "[https://gaw-bariri.bmkg.go.id](https://gaw-bariri.bmkg.go.id)".strip()
     endpoint_url = f"{base_domain}/api/push.php".strip()
     token_clean = str(joomla_token).strip()
 
     logs = []
     logs.append(f"🔍 **DIRECT BRIDGE ENDPOINT:** `{endpoint_url}`")
 
-    # WAKTU SEKARANG (UTC)
     now_dt = datetime.datetime.now(datetime.timezone.utc)
     unique_timestamp = now_dt.strftime("%Y%m%d%H%M%S")
+
+    first_image_relative_path = ""
 
     # A. UPLOAD GAMBAR DENGAN FILENAME UNIK & CACHE BUSTING
     for idx, img_bytes in enumerate(images, start=1):
         filename = f"article_{unique_timestamp}_{cat_id}_{idx}.jpg"
         
-        # Bersihkan URL upload media
         upload_media_url = f"{base_domain}/api/push.php".strip()
         files = {'file': (filename, img_bytes, 'image/jpeg')}
         media_headers = {"X-Joomla-Token": token_clean}
@@ -154,6 +153,9 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
             logs.append(f"🖼️ **Upload Gambar {idx} Status:** `{res_media.status_code}`")
         except Exception as e:
             logs.append(f"⚠️ **Upload Gambar {idx} Exception:** `{str(e)}`")
+
+        if idx == 1:
+            first_image_relative_path = f"images/Artikel/{filename}"
 
         img_src_url = f"{base_domain}/images/Artikel/{filename}?v={unique_timestamp}"
         img_tag = f'<p style="text-align: center;"><img src="{img_src_url}" alt="{title}" class="img-fluid rounded my-3" /></p>'
@@ -172,6 +174,16 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     created_time = now_dt.strftime("%Y-%m-%d %H:%M:%S")
     publish_up_time = (now_dt + datetime.timedelta(minutes=3)).strftime("%Y-%m-%d %H:%M:%S")
 
+    # D. PAYLOAD IMAGES LENGKAP UNTUK SLIDER DEPAN
+    images_payload = {}
+    if first_image_relative_path:
+        images_payload = {
+            "image_intro": first_image_relative_path,
+            "image_intro_alt": clean_title,
+            "image_fulltext": first_image_relative_path,
+            "image_fulltext_alt": clean_title
+        }
+
     payload = {
         "title": clean_title,
         "alias": alias_clean,
@@ -179,18 +191,17 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
         "catid": int(cat_id),
         "created_by": int(author_id),
         "created": created_time,
-        "publish_up": publish_up_time
+        "publish_up": publish_up_time,
+        "images": json.dumps(images_payload)
     }
 
     logs.append(f"📦 **Payload Sent to Bridge:**\n```json\n{payload}\n```")
 
-    # D. EKSEKUSI PENERBITAN
     headers = {
         "X-Joomla-Token": token_clean,
         "Content-Type": "application/json"
     }
 
-    # Gunakan str(endpoint_url).strip() untuk menjamin tidak ada karakter aneh
     res = requests.post(str(endpoint_url).strip(), headers=headers, json=payload, timeout=30)
     logs.append(f"📡 **Bridge Response Status:** `{res.status_code}`")
 
@@ -199,7 +210,6 @@ def publish_to_joomla(title, html_content, images, cat_id, author_id, joomla_url
     except Exception:
         response_data = {"status_code": res.status_code, "text": res.text[:500]}
 
-    # E. PEMICU BACKGROUND THREAD
     if res.status_code in [200, 201]:
         threading.Thread(
             target=auto_trigger_joomla_cache, 
@@ -256,7 +266,6 @@ if st.button("Publish Artikel", type="primary"):
                     st.secrets["JOOMLA_TOKEN"]
                 )
 
-            # CONSOLE LOGS DEBUGGER
             with st.expander("🛠️ Klik di sini untuk melihat Console Logs (Detail Titik Error)", expanded=True):
                 for log in debug_logs:
                     st.markdown(log)
