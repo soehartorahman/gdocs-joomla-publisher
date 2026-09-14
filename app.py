@@ -4,7 +4,6 @@ import time
 import re
 import os
 import requests
-import base64
 from google import genai
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -120,11 +119,11 @@ def format_with_gemini(raw_text, gemini_key):
     )
     return response.text
 
-# --- 3. BROWSER BOT AUTOMATION DENGAN TRACKER TOMBOL & SCREENSHOT ---
+# --- 3. BROWSER BOT AUTOMATION (WITH FULL VALIDATION FIX & BUTTON TRACKER) ---
 def run_publisher_bot(admin_url, username, password, title, alias, cat_id, author_id, html_content, images, bridge_token):
     logs = []
     screenshots = []
-    logs.append("🤖 **Memulai Publisher Bot (Headless Mode with Button Tracking)...**")
+    logs.append("🤖 **Memulai Publisher Bot (Headless Mode)...**")
     
     base_domain = str(admin_url).replace('/administrator', '').replace('/index.php', '').strip().rstrip('/')
     if not base_domain.startswith("http"):
@@ -172,21 +171,17 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
         context = browser.new_context(viewport={'width': 1366, 'height': 768})
         page = context.new_page()
 
-        # HELPER FUNGSIONAL UNTUK MENGEKLIK & MENCATAT DETIL TOMBOL
         def track_and_click(selector, description):
             try:
                 elem = page.locator(selector).first
                 if elem.is_visible():
                     tag_name = elem.evaluate("el => el.tagName")
                     elem_text = elem.inner_text().strip() or elem.get_attribute("title") or elem.get_attribute("aria-label") or "No Text"
-                    elem_id = elem.get_attribute("id") or "No ID"
-                    elem_class = elem.get_attribute("class") or "No Class"
-                    
-                    logs.append(f"🖱️ **[CLICK TRACKER]** Mengeklik {description} -> `<{tag_name} id='{elem_id}' class='{elem_class}'> Text: '{elem_text}'`")
+                    logs.append(f"🖱️ **[CLICK TRACKER]** Mengeklik {description} -> `<{tag_name}> Text: '{elem_text}'`")
                     elem.click()
                     return True
                 else:
-                    logs.append(f"⚠️ **[CLICK TRACKER]** Tombol {description} terdeteksi di DOM tetapi tersembunyi (*not visible*).")
+                    logs.append(f"⚠️ **[CLICK TRACKER]** {description} tersembunyi (*not visible*).")
                     return False
             except Exception as ex:
                 logs.append(f"⚠️ **[CLICK TRACKER]** Gagal mengeklik {description}: `{str(ex)}`")
@@ -200,8 +195,6 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
 
             page.fill("input[name='username']", username)
             page.fill("input[name='passwd']", password)
-            
-            # TRACK KLIK TOMBOL LOGIN
             track_and_click("button[type='submit']", "Tombol Submit Login Admin")
             page.wait_for_load_state("domcontentloaded")
             logs.append("✅ **Berhasil Login Admin!**")
@@ -221,7 +214,7 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 if alias_input.is_visible():
                     alias_input.fill(alias)
 
-            # 4. PILIH KATEGORI (HANDLING CHOICES.JS)
+            # 4. FIX VALIDASI REQUIRED KATEGORI (CHOICES.JS + DOM EVENTS)
             logs.append(f"🏷️ Mengubah Kategori ke ID: `{cat_id}`...")
             page.evaluate("""
                 ([catId]) => {
@@ -230,8 +223,9 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                         select.value = catId;
                         select.dispatchEvent(new Event('change', { bubbles: true }));
                         select.dispatchEvent(new Event('input', { bubbles: true }));
+                        select.dispatchEvent(new Event('blur', { bubbles: true }));
                         if (select.choices) {
-                            select.choices.setChoiceByValue(String(catId));
+                            try { select.choices.setChoiceByValue(String(catId)); } catch(e){}
                         }
                     }
                 }
@@ -241,7 +235,6 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
             # 5. Set Intro Image pada Tab Images and Links
             if first_img_relative_path:
                 logs.append("🖼️ Buka Tab 'Images and Links'...")
-                # TRACK KLIK TAB IMAGES
                 track_and_click("button[aria-controls='attrib-images'], a[href='#attrib-images']", "Tab Images & Links")
                 page.wait_for_timeout(500)
                 
@@ -255,7 +248,6 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
 
             # 6. INJEKSI KONTEN KE EDITOR
             logs.append("📝 Buka Tab 'Content / Editor'...")
-            # TRACK KLIK TAB CONTENT
             track_and_click("button[aria-controls='editor-content'], a[href='#editor-content']", "Tab Content Editor")
             page.wait_for_timeout(500)
 
@@ -276,7 +268,6 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
             # 7. UBAH PENULIS ASLI DI TAB PUBLISHING
             if author_id and author_id > 0:
                 logs.append(f"👤 Buka Tab 'Publishing' untuk Author ID: {author_id}...")
-                # TRACK KLIK TAB PUBLISHING
                 track_and_click("button[aria-controls='publishing'], a[href='#publishing']", "Tab Publishing")
                 page.wait_for_timeout(500)
                 
@@ -286,64 +277,36 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                         if (el) {
                             el.value = authorId;
                             el.dispatchEvent(new Event('change', { bubbles: true }));
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('blur', { bubbles: true }));
                         }
                     }
                 """, [str(author_id)])
                 page.wait_for_timeout(500)
 
-            # 8. DETEKSI & KLIK TOMBOL SAVE & CLOSE (WITH FULL AUDIT TRACKER)
-            logs.append("💾 **Menelusuri & Mengeklik Tombol 'Save & Close'...**")
+            # 8. TEKAN SAVE & CLOSE DAN VERIFIKASI VALIDASI REAL-TIME
+            logs.append("💾 **Menekan Tombol 'Save & Close'...**")
             
-            # Rekam info lengkap elemen toolbar Save
-            toolbar_info = page.evaluate("""
-                () => {
-                    const btn = document.querySelector("joomla-toolbar-button[task='article.save'] button, button[data-task='article.save'], button.button-save");
-                    if (btn) {
-                        return {
-                            found: true,
-                            tagName: btn.tagName,
-                            id: btn.id || 'No ID',
-                            className: btn.className || 'No Class',
-                            task: btn.getAttribute('data-task') || btn.getAttribute('task') || 'No Task',
-                            outerHTML: btn.outerHTML.substring(0, 150)
-                        };
-                    }
-                    return { found: false };
-                }
-            """)
-
-            if toolbar_info and toolbar_info.get("found"):
-                logs.append(f"🎯 **[TARGET FOUND]** Tombol Save terdeteksi: `<{toolbar_info['tagName']} class='{toolbar_info['className']}' task='{toolbar_info['task']}'>`")
-            else:
-                logs.append("⚠️ **[TARGET MISSING]** Tombol fisik Save tidak ditemukan di DOM, menggunakan fallback API.")
-
-            # Eksekusi Klik Fisik Tombol Save
-            clicked_status = track_and_click("joomla-toolbar-button[task='article.save'] button, button[data-task='article.save'], button.button-save", "Tombol Save & Close")
+            # Pemicu klik tombol Save & Close
+            track_and_click("joomla-toolbar-button[task='article.save'] button, button[data-task='article.save'], button.button-save", "Tombol Save & Close")
             
-            # Fallback pemicu JS jika click tracker belum jalan
-            page.evaluate("""
-                () => {
-                    if (window.Joomla && typeof Joomla.submitbutton === 'function') {
-                        Joomla.submitbutton('article.save');
-                    }
-                }
-            """)
-
-            # Tunggu proses render dan alih halaman Joomla
             page.wait_for_timeout(4000)
             
-            # Tangkap Screenshot Halaman Akhir sebagai bukti
+            # Ambil screenshot hasil submit
             screenshot_bytes = page.screenshot(full_page=False)
             screenshots.append(screenshot_bytes)
 
             logs.append(f"🌐 **[URL SEKARANG]**: `{page.url}`")
 
-            if "option=com_content&view=articles" in page.url or "task=article.save" not in page.url:
+            # Verifikasi jika ada error validasi di layar
+            has_error = page.locator(".alert-danger, .system-message-container .alert-error").is_visible()
+
+            if not has_error and ("option=com_content&view=articles" in page.url or "task=article.save" not in page.url):
                 logs.append("🎉 **Artikel BERHASIL Diterbitkan Sempurna & Terkonfirmasi di Database!**")
                 browser.close()
                 return True, logs, screenshots
             else:
-                logs.append("⚠️ Halaman belum berpindah. Silakan periksa screenshot tampilan backend di bawah.")
+                logs.append("❌ **Gagal Simpan:** Validasi Joomla menolak form. Periksa screenshot tampilan di bawah.")
                 browser.close()
                 return False, logs, screenshots
 
