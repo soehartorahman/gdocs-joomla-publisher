@@ -219,17 +219,53 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 if full_input.is_visible():
                     full_input.fill(first_img_relative_path)
 
-            # 6. INJEKSI KONTEN KE EDITOR TINYMCE
+            # 6. INJEKSI KONTEN DENGAN DUKUNGAN UNIVERSAL (JCE & TINYMCE)
+            logs.append("📝 Memasukkan Teks Artikel ke Editor (JCE / TinyMCE)...")
             content_tab = page.locator("button[aria-controls='editor-content'], a[href='#editor-content']").first
             if content_tab.is_visible():
                 content_tab.click()
                 page.wait_for_timeout(500)
 
-            iframe = page.frame_locator("#jform_articletext_ifr")
-            if iframe.locator("body").is_visible():
-                iframe.locator("body").evaluate("(el, content) => el.innerHTML = content", html_content)
-            else:
-                page.fill("#jform_articletext", html_content)
+            # Menjalankan evaluasi JavaScript multi-editor
+            page.evaluate("""
+                ([selector, html]) => {
+                    // 1. Coba Inject via API JCE Editor
+                    if (window.WFEditor && WFEditor.instances && WFEditor.instances.jform_articletext) {
+                        WFEditor.instances.jform_articletext.setContent(html);
+                        return;
+                    }
+                    if (window.WFEditor && typeof WFEditor.setContent === 'function') {
+                        WFEditor.setContent('jform_articletext', html);
+                        return;
+                    }
+
+                    // 2. Coba Inject via API TinyMCE
+                    if (window.tinymce && tinymce.get('jform_articletext')) {
+                        tinymce.get('jform_articletext').setContent(html);
+                        return;
+                    }
+
+                    // 3. Direct DOM iframe Fallback (JCE / TinyMCE iframe)
+                    const iframes = document.querySelectorAll('iframe');
+                    for (let iframe of iframes) {
+                        if (iframe.id.includes('jform_articletext') || iframe.src.includes('editor')) {
+                            const doc = iframe.contentDocument || iframe.contentWindow.document;
+                            if (doc && doc.body) {
+                                doc.body.innerHTML = html;
+                                return;
+                            }
+                        }
+                    }
+
+                    // 4. Fallback ke Textarea dasar
+                    const textarea = document.querySelector(selector);
+                    if (textarea) {
+                        textarea.value = html;
+                    }
+                }
+            """, ["#jform_articletext", html_content])
+            
+            logs.append("✅ Konten HTML berhasil disuntikkan ke Editor!")
 
             # 7. UBAH PENULIS ASLI DI TAB PUBLISHING (CREATED BY)
             if author_id and author_id > 0:
