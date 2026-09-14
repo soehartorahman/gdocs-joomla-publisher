@@ -14,7 +14,7 @@ st.set_page_config(page_title="GDocs to Joomla Publisher", page_icon="🚀", lay
 st.title("🚀 Auto-Publisher GDocs ke Joomla 5")
 st.caption("BMKG GAW Bariri - Powered by Gemini AI & Playwright Bot")
 
-# --- DAFTAR PENULIS ASLI (AKUN BOT HIDDEN DARI GUI) ---
+# --- DAFTAR PENULIS ASLI (HIDDEN BOT FROM GUI) ---
 USERS_DICT = {
     "Dian Paolo, S.Tr.Klim.": 359,
     "Galih Langit Pamungkas, S.Tr.Klim.": 362,
@@ -93,7 +93,7 @@ def get_gdoc_data(doc_id, service_account_info):
                     
     return text_content, images
 
-# --- 2. FORMAT TEKS GEMINI AI (JUSTIFY, BUANG JUDUL DOCS, INSERT READ MORE) ---
+# --- 2. FORMAT TEKS GEMINI AI ---
 def format_with_gemini(raw_text, gemini_key):
     client = genai.Client(api_key=gemini_key)
     
@@ -105,7 +105,7 @@ def format_with_gemini(raw_text, gemini_key):
     2. JANGAN sertakan tag <h1> untuk judul di dalam body HTML.
     3. Bungkus SELURUH konten artikel dalam kontainer <div style="text-align: justify;"> agar paragraf rata kiri-kanan.
     4. Masukkan tag pembatas Joomla `<hr id="system-readmore" />` persis setelah paragraf pertama (sebelum <h2> atau gambar kedua) untuk memicu fitur "Read More".
-    5. Gunakan tag HTML standar seperti <h2>, <h3>, <p>, <ul>, <li>, <strong>.
+    5. Gunakan tag HTML standar seperti <h2>, 3, <p>, <ul>, <li>, <strong>.
     6. JANGAN HAPUS atau merusak tag placeholder gambar seperti [IMAGE_PLACEHOLDER_1], [IMAGE_PLACEHOLDER_2], dst.
     7. Kembalikan HANYA kode HTML tanpa format markdown (jangan gunakan ```html).
 
@@ -119,7 +119,7 @@ def format_with_gemini(raw_text, gemini_key):
     )
     return response.text
 
-# --- BROWSER BOT AUTOMATION (OPTIMIZED FOR ADMINISTRATOR GROUP) ---
+# --- 3. BROWSER BOT AUTOMATION (DISPERBAIKI LOGIKA CATEGORY & AUTHOR TRIGGER) ---
 def run_publisher_bot(admin_url, username, password, title, alias, cat_id, author_id, html_content, images, bridge_token):
     logs = []
     logs.append("🤖 **Memulai Publisher Bot (Headless Mode)...**")
@@ -182,12 +182,12 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
             page.wait_for_load_state("domcontentloaded")
             logs.append("✅ **Berhasil Login Admin!**")
 
-            # 2. LANGSUNG MENUSUK KE FORM ARTIKEL BARU (Bisa dilakukan karena hak akses Administrator)
+            # 2. Buka Form Artikel Baru
             new_art_url = f"{base_domain}/administrator/index.php?option=com_content&task=article.add"
             logs.append(f"📝 Membuka Form Artikel Baru: `{new_art_url}`")
             page.goto(new_art_url, wait_until="domcontentloaded", timeout=60000)
 
-            # 3. ISI JUDUL & ALIAS
+            # 3. Isi Judul & Alias
             logs.append("✍️ Mengisi Judul Artikel...")
             title_input = page.locator("#jform_title").first
             title_input.wait_for(state="visible", timeout=20000)
@@ -198,12 +198,23 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 if alias_input.is_visible():
                     alias_input.fill(alias)
 
-            # 4. PILIH KATEGORI
-            cat_select = page.locator("#jform_catid").first
-            if cat_select.is_visible():
-                cat_select.select_option(value=str(cat_id))
+            # 4. FIX: PILIH KATEGORI (DENGAN EVENT TRIGGER HARMONIS)
+            logs.append(f"🏷️ Mengubah Kategori ke ID: `{cat_id}`...")
+            page.evaluate("""
+                ([selector, val]) => {
+                    const el = document.querySelector(selector);
+                    if (el) {
+                        el.value = val;
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                        // Jika Joomla memakai library Choices.js
+                        if (el.choices) { el.choices.setChoiceByValue(val); }
+                    }
+                }
+            """, ["#jform_catid", str(cat_id)])
+            page.wait_for_timeout(500)
 
-            # 5. SET INTRO IMAGE DI TAB IMAGES AND LINKS
+            # 5. Set Intro Image pada Tab Images and Links
             if first_img_relative_path:
                 logs.append("🖼️ Mengisi Intro Image & Full Text Image...")
                 img_tab = page.locator("button[aria-controls='attrib-images'], a[href='#attrib-images']").first
@@ -219,17 +230,15 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 if full_input.is_visible():
                     full_input.fill(first_img_relative_path)
 
-            # 6. INJEKSI KONTEN DENGAN DUKUNGAN UNIVERSAL (JCE & TINYMCE)
-            logs.append("📝 Memasukkan Teks Artikel ke Editor (JCE / TinyMCE)...")
+            # 6. INJEKSI KONTEN KE EDITOR (JCE / TINYMCE)
+            logs.append("📝 Memasukkan Teks Artikel ke Editor...")
             content_tab = page.locator("button[aria-controls='editor-content'], a[href='#editor-content']").first
             if content_tab.is_visible():
                 content_tab.click()
                 page.wait_for_timeout(500)
 
-            # Menjalankan evaluasi JavaScript multi-editor
             page.evaluate("""
                 ([selector, html]) => {
-                    // 1. Coba Inject via API JCE Editor
                     if (window.WFEditor && WFEditor.instances && WFEditor.instances.jform_articletext) {
                         WFEditor.instances.jform_articletext.setContent(html);
                         return;
@@ -238,14 +247,10 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                         WFEditor.setContent('jform_articletext', html);
                         return;
                     }
-
-                    // 2. Coba Inject via API TinyMCE
                     if (window.tinymce && tinymce.get('jform_articletext')) {
                         tinymce.get('jform_articletext').setContent(html);
                         return;
                     }
-
-                    // 3. Direct DOM iframe Fallback (JCE / TinyMCE iframe)
                     const iframes = document.querySelectorAll('iframe');
                     for (let iframe of iframes) {
                         if (iframe.id.includes('jform_articletext') || iframe.src.includes('editor')) {
@@ -256,33 +261,35 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                             }
                         }
                     }
-
-                    // 4. Fallback ke Textarea dasar
                     const textarea = document.querySelector(selector);
-                    if (textarea) {
-                        textarea.value = html;
-                    }
+                    if (textarea) { textarea.value = html; }
                 }
             """, ["#jform_articletext", html_content])
-            
-            logs.append("✅ Konten HTML berhasil disuntikkan ke Editor!")
+            page.wait_for_timeout(500)
 
-            # 7. UBAH PENULIS ASLI DI TAB PUBLISHING (CREATED BY)
+            # 7. FIX: UBAH PENULIS ASLI DI TAB PUBLISHING (CREATED BY)
             if author_id and author_id > 0:
-                try:
-                    logs.append(f"👤 **Mengubah Metadata Penulis Artikel ke Author ID: {author_id}...**")
-                    pub_tab = page.locator("button[aria-controls='publishing'], a[href='#publishing']").first
-                    if pub_tab.is_visible():
-                        pub_tab.click()
-                        page.wait_for_timeout(500)
-                    
-                    author_input = page.locator("#jform_created_by").first
-                    if author_input.is_visible():
-                        author_input.fill(str(author_id))
-                except Exception as e_author:
-                    logs.append(f"⚠️ Catatan Author: `{str(e_author)}`")
+                logs.append(f"👤 **Mengubah Metadata Penulis Artikel ke Author ID: {author_id}...**")
+                pub_tab = page.locator("button[aria-controls='publishing'], a[href='#publishing']").first
+                if pub_tab.is_visible():
+                    pub_tab.click()
+                    page.wait_for_timeout(500)
+                
+                # Mengisi ID Author dan memicu event pendaftaran data di Joomla
+                page.evaluate("""
+                    ([selector, authorId]) => {
+                        const el = document.querySelector(selector);
+                        if (el) {
+                            el.value = authorId;
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('blur', { bubbles: true }));
+                        }
+                    }
+                """, ["#jform_created_by", str(author_id)])
+                page.wait_for_timeout(500)
 
-            # 8. MENEKAN SAVE & CLOSE
+            # 8. Menekan Save & Close
             logs.append("💾 **Menekan Tombol 'Save & Close'...**")
             save_btn = page.locator("button.button-save, button[data-task='article.save']").first
             save_btn.click()
@@ -296,7 +303,7 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
             logs.append(f"❌ **Error Automation:** `{str(e)}`")
             browser.close()
             return False, logs
-            
+
 # --- INTERFACE GUI STREAMLIT ---
 doc_url = st.text_input("Link Google Docs:")
 article_title = st.text_input("Judul Artikel:")
@@ -357,7 +364,7 @@ if st.button("🚀 Publish Artikel Sekarang", type="primary"):
                     st.markdown(log)
 
             if success:
-                st.success("✅ Artikel BERHASIL diterbitkan! Rata kiri-kanan, Read More, dan Gambar Intro terpasang otomatis.")
+                st.success("✅ Artikel BERHASIL diterbitkan! Kategori dan Penulis sekarang sudah 100% sesuai pilihan!")
                 st.balloons()
             else:
                 st.error("Gagal memproses artikel. Cek log debugger di atas.")
