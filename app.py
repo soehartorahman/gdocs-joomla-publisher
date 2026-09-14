@@ -2,7 +2,7 @@ import streamlit as st
 import datetime
 import time
 import re
-import json
+import os
 import requests
 from google import genai
 from google.oauth2 import service_account
@@ -22,7 +22,7 @@ USERS_DICT = {
     "Hermanto Asima Nainggolan, S.Tr.": 363,
     "Laura Prastika,S.Tr": 351,
     "Mudayu Ekaning Prastiwi, S.Tr.Klim.": 355,
-    "Muh. Soeharto Dwi Putra Rahman, S.Tr": 358,
+    "Muh.Soeharto Dwi Putra Rahman, S.Tr": 358,
     "Muhammad Hafizh Suwandi, S.Tr.Klim.": 349,
     "Santy Wulandari S.Tr": 360,
     "Solih Alfiandy,S.Tr": 353,
@@ -119,7 +119,7 @@ def format_with_gemini(raw_text, gemini_key):
     )
     return response.text
 
-# --- 3. BROWSER BOT AUTOMATION (PLAYWRIGHT LOG IN BOT_POST & ATUR AUTHOR ASLI) ---
+# --- 3. BROWSER BOT AUTOMATION (NAVIGASI MENU CONTENT) ---
 def run_publisher_bot(admin_url, username, password, title, alias, cat_id, author_id, html_content, images, bridge_token):
     logs = []
     logs.append("🤖 **Memulai Browser Bot (Headless Mode)...**")
@@ -154,9 +154,9 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
         img_tag = f'<p style="text-align: center;"><img src="{img_src_url}" alt="{title}" class="img-fluid rounded my-3" /></p>'
         html_content = html_content.replace(f"[IMAGE_PLACEHOLDER_{idx}]", img_tag)
 
-    # B. EKSEKUSI UI AUTOMATION DENGAN PLAYWRIGHT
+    # B. PLAYWRIGHT AUTOMATION
     with sync_playwright() as p:
-        import os
+        # Fallback chromium Linux Streamlit Cloud
         executable_path = None
         if os.path.exists("/usr/bin/chromium"):
             executable_path = "/usr/bin/chromium"
@@ -172,136 +172,65 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
         page = context.new_page()
 
         try:
-            # 1. Login Backend Menggunakan Kredensial Bot (bot_post) dari Secrets
+            # 1. Login Backend Administrator
             logs.append(f"🔑 Menuju halaman login admin: `{admin_login_url}`")
             page.goto(admin_login_url, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_selector("input[name='username']", timeout=15000)
 
             page.fill("input[name='username']", username)
             page.fill("input[name='passwd']", password)
             page.click("button[type='submit']")
             page.wait_for_load_state("domcontentloaded")
-            logs.append("✅ **Berhasil Login ke Joomla dengan Akun Bot (`bot_post`)!**")
+            logs.append("✅ **Berhasil Login ke Dashboard Joomla!**")
 
-            # 2. Buka Form Artikel Baru
-            new_art_url = f"{base_domain}/administrator/index.php?option=com_content&task=article.add"
-            page.goto(new_art_url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_selector("#jform_title", timeout=15000)
-            logs.append("📝 Membuka Form 'Articles: New'...")
-
-            # 3. Isi Form Title & Alias
-            page.fill("#jform_title", title)
-            if alias:
-                page.fill("#jform_alias", alias)
-
-            # 4. Pilih Kategori
-            page.select_option("#jform_catid", str(cat_id))
-
-            # 5. Set Intro Image pada Tab Images and Links
-            if first_img_relative_path:
-                logs.append("🖼️ Mengisi Intro Image & Full Text Image...")
-                page.click("button[aria-controls='attrib-images'], a[href='#attrib-images']")
+            # 2. NAVIGASI MELALUI MENU CONTENT (SEPERTI MANUSIA)
+            logs.append("📂 Membuka Sidebar Menu 'Content'...")
+            
+            # Coba klik menu Content pada sidebar kiri
+            content_menu = page.locator("a:has-text('Content'), li#menu-content > a, nav#sidebar a[href*='com_content']")
+            if content_menu.is_visible():
+                content_menu.click()
                 page.wait_for_timeout(500)
-                page.fill("#jform_images_image_intro", first_img_relative_path)
-                page.fill("#jform_images_image_fulltext", first_img_relative_path)
 
-            # 6. Injeksi Konten Artikel Ke Editor TinyMCE
-            page.click("button[aria-controls='editor-content'], a[href='#editor-content']")
-            page.wait_for_timeout(500)
-
-            iframe = page.frame_locator("#jform_articletext_ifr")
-            if iframe.locator("body").is_visible():
-                iframe.locator("body").evaluate("(el, content) => el.innerHTML = content", html_content)
+            # Klik ikon (+) pada Articles atau buka Articles
+            logs.append("📝 Menuju halaman pembuatan Artikel Baru...")
+            add_article_btn = page.locator("a[href*='task=article.add'], a:has-text('Articles') + a, button.button-new")
+            
+            if add_article_btn.is_visible():
+                add_article_btn.click()
             else:
-                page.fill("#jform_articletext", html_content)
+                # Direct fallback ke halaman pembuatan artikel
+                page.goto(f"{base_domain}/administrator/index.php?option=com_content&task=article.add", wait_until="domcontentloaded")
 
-            # 7. UBAH PENULIS ASLI DI TAB PUBLISHING (CREATED BY)
-            if author_id and author_id > 0:
-                try:
-                    logs.append(f"👤 **Mengubah Metadata Penulis Artikel ke Author ID: {author_id}...**")
-                    page.click("button[aria-controls='publishing'], a[href='#publishing']")
-                    page.wait_for_timeout(500)
-                    page.fill("#jform_created_by", str(author_id))
-                except Exception as e_author:
-                    logs.append(f"⚠️ Catatan Author: `{str(e_author)}`")
-
-            # 8. Klik Save & Close (Resmi Menampilkan dan Menerbitkan Artikel)
-            logs.append("💾 **Menekan Tombol 'Save & Close'...**")
-            page.click("button.button-save, button[data-task='article.save']")
             page.wait_for_load_state("domcontentloaded")
 
-            logs.append("🎉 **Artikel BERHASIL Diterbitkan Sempurna oleh Bot atas nama Penulis yang Dipilih!**")
-            browser.close()
-            return True, logs
+            # 3. Input Title & Alias
+            title_input = page.locator("input[name='jform[title]'], #jform_title")
+            title_input.wait_for(state="visible", timeout=20000)
+            title_input.fill(title)
 
-        except Exception as e:
-            logs.append(f"❌ **Error Automation:** `{str(e)}`")
-            browser.close()
-            return False, logs
+            if alias:
+                alias_input = page.locator("input[name='jform[alias]'], #jform_alias")
+                if alias_input.is_visible():
+                    alias_input.fill(alias)
 
-# --- INTERFACE GUI STREAMLIT ---
-doc_url = st.text_input("Link Google Docs:")
-article_title = st.text_input("Judul Artikel:")
+            # 4. Pilih Kategori
+            cat_select = page.locator("select[name='jform[catid]'], #jform_catid")
+            if cat_select.is_visible():
+                cat_select.select_option(value=str(cat_id))
 
-col1, col2 = st.columns(2)
-
-with col1:
-    selected_cat_name = st.selectbox("Pilih Kategori Artikel:", list(CATEGORIES_DICT.keys()))
-    if CATEGORIES_DICT[selected_cat_name] == -1:
-        cat_id = st.number_input("Masukkan ID Kategori Baru (Angka):", min_value=1, step=1, value=24)
-    else:
-        cat_id = CATEGORIES_DICT[selected_cat_name]
-
-with col2:
-    selected_user_name = st.selectbox("Pilih Penulis Artikel (Author):", list(USERS_DICT.keys()))
-    if USERS_DICT[selected_user_name] == -1:
-        author_id = st.number_input("Masukkan ID Penulis Baru (Angka):", min_value=1, step=1, value=359)
-    else:
-        author_id = USERS_DICT[selected_user_name]
-
-if st.button("🚀 Publish Artikel Sekarang", type="primary"):
-    if not doc_url or not article_title:
-        st.error("Isi Link Google Docs dan Judul terlebih dahulu.")
-    else:
-        try:
-            doc_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', doc_url)
-            if not doc_id_match:
-                st.error("URL Google Docs tidak valid.")
-                st.stop()
-            doc_id = doc_id_match.group(1)
-
-            alias_clean = re.sub(r'[^a-z0-9-]', '', article_title.lower().replace(" ", "-").replace(":", ""))
-            alias_clean = re.sub(r'-+', '-', alias_clean).strip('-')
-            alias_clean = f"{alias_clean}-{int(time.time())}"
-
-            with st.spinner("1/3 Membaca Google Docs & Gambar..."):
-                raw_text, images = get_gdoc_data(doc_id, st.secrets["gcp_service_account"])
-
-            with st.spinner("2/3 Format Gemini AI (Justify, Read More, Hapus Judul Docs)..."):
-                formatted_html = format_with_gemini(raw_text, st.secrets["GEMINI_API_KEY"])
-
-            with st.spinner("3/3 Bot Login & Terbit Artikel..."):
-                success, debug_logs = run_publisher_bot(
-                    st.secrets["JOOMLA_URL"],
-                    st.secrets["JOOMLA_ADMIN_USER"],
-                    st.secrets["JOOMLA_ADMIN_PASS"],
-                    article_title,
-                    alias_clean,
-                    cat_id,
-                    author_id,
-                    formatted_html,
-                    images,
-                    st.secrets["JOOMLA_TOKEN"]
-                )
-
-            with st.expander("🛠️ Console Logs Automation", expanded=True):
-                for log in debug_logs:
-                    st.markdown(log)
-
-            if success:
-                st.success("✅ Artikel BERHASIL diterbitkan! Rata kiri-kanan, Read More, dan Gambar Intro terpasang otomatis.")
-                st.balloons()
-            else:
-                st.error("Gagal memproses artikel. Cek log debugger di atas.")
-
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
+            # 5. Set Intro Image di Tab Images and Links
+            if first_img_relative_path:
+                logs.append("🖼️ Mengisi Intro Image & Full Text Image...")
+                img_tab = page.locator("button[aria-controls='attrib-images'], a[href='#attrib-images']")
+                if img_tab.is_visible():
+                    img_tab.click()
+                    page.wait_for_timeout(500)
+                
+                intro_input = page.locator("input[name='jform[images][image_intro]'], #jform_images_image_intro")
+                if intro_input.is_visible():
+                    intro_input.fill(first_img_relative_path)
+                
+                full_input = page.locator("input[name='jform[images][image_fulltext]'], #jform_images_image_fulltext")
+                if full_input.is_visible():
+                    full_input.fill(first_img_relative
