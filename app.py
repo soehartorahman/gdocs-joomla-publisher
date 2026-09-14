@@ -119,7 +119,7 @@ def format_with_gemini(raw_text, gemini_key):
     )
     return response.text
 
-# --- 3. BROWSER BOT AUTOMATION (AUTHOR NAME & CATEGORY FIX) ---
+# --- 3. BROWSER BOT AUTOMATION (WITH POPUP USER SELECTION FLOW) ---
 def run_publisher_bot(admin_url, username, password, title, alias, cat_id, author_id, author_name, html_content, images, bridge_token):
     logs = []
     screenshots = []
@@ -252,9 +252,9 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 if full_input.is_visible():
                     full_input.fill(first_img_relative_path)
 
-            # 7. UBAH PENULIS DI TAB 'Publishing' DENGAN NAMA PENULIS DAN AUTHOR ID
+            # 7. UBAH PENULIS LEWAT MODAL POPUP "SELECT USER" (IDE PENTING HASIL SCREENSHOT)
             if author_name:
-                logs.append(f"👤 Ubah Penulis di Tab 'Publishing' ke: `{author_name}` (ID: {author_id})...")
+                logs.append(f"👤 Buka Tab 'Publishing' & Membuka Pop-up User Picker untuk: `{author_name}`...")
                 page.evaluate("""
                     () => {
                         const tabs = Array.from(document.querySelectorAll('button, a'));
@@ -264,32 +264,52 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 """)
                 page.wait_for_timeout(500)
 
-                page.evaluate("""
-                    ([authorName, authorId]) => {
-                        // 1. Mengisi kolom Created By Alias / Author (Nama Penulis Teks)
-                        const createdByAlias = document.querySelector('#jform_created_by_alias, input[name="jform[created_by_alias]"]');
-                        if (createdByAlias) {
-                            createdByAlias.value = authorName;
-                            createdByAlias.dispatchEvent(new Event('change', { bubbles: true }));
-                        }
-                        
-                        // 2. Mengisi Author Field biasa jika ada
-                        const authorField = document.querySelector('#jform_author, input[name="jform[author]"]');
-                        if (authorField) {
-                            authorField.value = authorName;
-                            authorField.dispatchEvent(new Event('change', { bubbles: true }));
-                        }
+                # Klik ikon user modal picker di samping created_by
+                user_modal_btn = page.locator("button.button-select[data-url*='field=created_by'], button[aria-label*='Select User'], button[title*='Select User'], .input-group button.btn-primary").first
+                
+                user_selected = False
+                if user_modal_btn.is_visible():
+                    user_modal_btn.click()
+                    logs.append("🔍 **Pop-up 'Select User' Terbuka! Mencari Penulis di Modal Dialog...**")
+                    page.wait_for_timeout(1500)
 
-                        // 3. Mengisi ID Penulis jika valid
-                        if (authorId && authorId > 0) {
-                            const createdBy = document.querySelector('#jform_created_by');
-                            if (createdBy) {
-                                createdBy.value = String(authorId);
-                                createdBy.dispatchEvent(new Event('change', { bubbles: true }));
+                    # Di dalam Iframe/Modal, cari link nama user
+                    modal_frame = page.frame_locator("iframe[name='field-user-modal'], iframe[src*='option=com_users']")
+                    
+                    try:
+                        # Coba cari elemen nama di dalam iframe modal
+                        target_user_link = modal_frame.locator(f"a:has-text('{author_name}')").first
+                        if target_user_link.is_visible():
+                            target_user_link.click()
+                            user_selected = True
+                            logs.append(f"✅ **Berhasil mengeklik nama '{author_name}' dari Modal Pop-up!**")
+                    except Exception:
+                        pass
+
+                    # Fallback jika modal berada di DOM utama (non-iframe)
+                    if not user_selected:
+                        target_user_main = page.locator(f"iframe, div.modal-body a:has-text('{author_name}'), joomla-field-user a:has-text('{author_name}')").first
+                        if target_user_main.is_visible():
+                            target_user_main.click()
+                            user_selected = True
+                            logs.append(f"✅ **Berhasil mengeklik nama '{author_name}' dari Dialog!**")
+                
+                # Fallback API internal jika Modal tidak berhasil diklik fisik
+                if not user_selected:
+                    logs.append("ℹ️ Menggunakan Pemicu API Internal Joomla User Field...")
+                    page.evaluate("""
+                        ([authorId, authorName]) => {
+                            if (window.jSelectUser_jform_created_by) {
+                                window.jSelectUser_jform_created_by(authorId, authorName);
+                            } else {
+                                const inputId = document.querySelector('#jform_created_by');
+                                const inputText = document.querySelector('#jform_created_by_name');
+                                if (inputId) inputId.value = String(authorId);
+                                if (inputText) inputText.value = authorName;
                             }
                         }
-                    }
-                """, [author_name, author_id])
+                    """, [author_id, author_name])
+
                 page.wait_for_timeout(500)
 
             # 8. TEKAN SAVE & CLOSE LEWAT JOOMLA SUBMIT API
