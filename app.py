@@ -197,9 +197,22 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 if alias_input.is_visible():
                     alias_input.fill(alias)
 
-            # 4. PILIH KATEGORI (Standard Select)
+            # 4. PILIH KATEGORI (HANDLING CHOICES.JS)
             logs.append(f"🏷️ Mengubah Kategori ke ID: `{cat_id}`...")
-            page.select_option("#jform_catid", value=str(cat_id))
+            page.evaluate("""
+                ([catId]) => {
+                    const select = document.querySelector('#jform_catid');
+                    if (select) {
+                        select.value = catId;
+                        select.dispatchEvent(new Event('change', { bubbles: true }));
+                        select.dispatchEvent(new Event('input', { bubbles: true }));
+                        if (select.choices) {
+                            select.choices.setChoiceByValue(String(catId));
+                        }
+                    }
+                }
+            """, [str(cat_id)])
+            page.wait_for_timeout(500)
 
             # 5. Set Intro Image pada Tab Images and Links
             if first_img_relative_path:
@@ -257,10 +270,8 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 """, [str(author_id)])
                 page.wait_for_timeout(500)
 
-            # 8. TRICK UTAMA: EKSPLISIT SUBMIT MENGGUNAKAN API JOOMLA & FALLBACK CLICK
-            logs.append("💾 **Memicu Perintah Simpan (Joomla Submit API)...**")
-            
-            # Panggil langsung JS submitbutton Joomla
+            # 8. SUBMIT VIA JOOMLA API & FALLBACK CLICK
+            logs.append("💾 **Menekan Tombol 'Save & Close'...**")
             page.evaluate("""
                 () => {
                     if (window.Joomla && typeof Joomla.submitbutton === 'function') {
@@ -270,9 +281,8 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                     }
                 }
             """)
-            
-            # Cadangan jika JS API tertahan: klik tombol fisik
             page.wait_for_timeout(1000)
+            
             save_btn = page.locator("joomla-toolbar-button[task='article.save'] button, button[data-task='article.save'], button.button-save").first
             if save_btn.is_visible():
                 save_btn.click()
