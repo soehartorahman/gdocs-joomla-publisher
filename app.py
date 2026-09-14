@@ -4,6 +4,7 @@ import time
 import re
 import os
 import requests
+import base64
 from google import genai
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -14,7 +15,7 @@ st.set_page_config(page_title="GDocs to Joomla Publisher", page_icon="🚀", lay
 st.title("🚀 Auto-Publisher GDocs ke Joomla 5")
 st.caption("BMKG GAW Bariri - Powered by Gemini AI & Playwright Bot")
 
-# --- DAFTAR PENULIS ASLI (HIDDEN BOT FROM GUI) ---
+# --- DAFTAR PENULIS ASLI (AKUN BOT HIDDEN DARI GUI) ---
 USERS_DICT = {
     "Dian Paolo, S.Tr.Klim.": 359,
     "Galih Langit Pamungkas, S.Tr.Klim.": 362,
@@ -105,7 +106,7 @@ def format_with_gemini(raw_text, gemini_key):
     2. JANGAN sertakan tag <h1> untuk judul di dalam body HTML.
     3. Bungkus SELURUH konten artikel dalam kontainer <div style="text-align: justify;"> agar paragraf rata kiri-kanan.
     4. Masukkan tag pembatas Joomla `<hr id="system-readmore" />` persis setelah paragraf pertama (sebelum <h2> atau gambar kedua) untuk memicu fitur "Read More".
-    5. Gunakan tag HTML standar seperti <h2>, 3, <p>, <ul>, <li>, <strong>.
+    5. Gunakan tag HTML standar seperti <h2>, <h3>, <p>, <ul>, <li>, <strong>.
     6. JANGAN HAPUS atau merusak tag placeholder gambar seperti [IMAGE_PLACEHOLDER_1], [IMAGE_PLACEHOLDER_2], dst.
     7. Kembalikan HANYA kode HTML tanpa format markdown (jangan gunakan ```html).
 
@@ -119,10 +120,11 @@ def format_with_gemini(raw_text, gemini_key):
     )
     return response.text
 
-# --- 3. BROWSER BOT AUTOMATION (DIRECT JOOMLA SUBMIT FIX) ---
+# --- 3. BROWSER BOT AUTOMATION DENGAN TRACKER TOMBOL & SCREENSHOT ---
 def run_publisher_bot(admin_url, username, password, title, alias, cat_id, author_id, html_content, images, bridge_token):
     logs = []
-    logs.append("🤖 **Memulai Publisher Bot (Headless Mode)...**")
+    screenshots = []
+    logs.append("🤖 **Memulai Publisher Bot (Headless Mode with Button Tracking)...**")
     
     base_domain = str(admin_url).replace('/administrator', '').replace('/index.php', '').strip().rstrip('/')
     if not base_domain.startswith("http"):
@@ -170,6 +172,26 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
         context = browser.new_context(viewport={'width': 1366, 'height': 768})
         page = context.new_page()
 
+        # HELPER FUNGSIONAL UNTUK MENGEKLIK & MENCATAT DETIL TOMBOL
+        def track_and_click(selector, description):
+            try:
+                elem = page.locator(selector).first
+                if elem.is_visible():
+                    tag_name = elem.evaluate("el => el.tagName")
+                    elem_text = elem.inner_text().strip() or elem.get_attribute("title") or elem.get_attribute("aria-label") or "No Text"
+                    elem_id = elem.get_attribute("id") or "No ID"
+                    elem_class = elem.get_attribute("class") or "No Class"
+                    
+                    logs.append(f"🖱️ **[CLICK TRACKER]** Mengeklik {description} -> `<{tag_name} id='{elem_id}' class='{elem_class}'> Text: '{elem_text}'`")
+                    elem.click()
+                    return True
+                else:
+                    logs.append(f"⚠️ **[CLICK TRACKER]** Tombol {description} terdeteksi di DOM tetapi tersembunyi (*not visible*).")
+                    return False
+            except Exception as ex:
+                logs.append(f"⚠️ **[CLICK TRACKER]** Gagal mengeklik {description}: `{str(ex)}`")
+                return False
+
         try:
             # 1. Login Backend Administrator
             logs.append(f"🔑 Menuju halaman login admin: `{admin_login_url}`")
@@ -178,7 +200,9 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
 
             page.fill("input[name='username']", username)
             page.fill("input[name='passwd']", password)
-            page.click("button[type='submit']")
+            
+            # TRACK KLIK TOMBOL LOGIN
+            track_and_click("button[type='submit']", "Tombol Submit Login Admin")
             page.wait_for_load_state("domcontentloaded")
             logs.append("✅ **Berhasil Login Admin!**")
 
@@ -216,11 +240,10 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
 
             # 5. Set Intro Image pada Tab Images and Links
             if first_img_relative_path:
-                logs.append("🖼️ Mengisi Intro Image & Full Text Image...")
-                img_tab = page.locator("button[aria-controls='attrib-images'], a[href='#attrib-images']").first
-                if img_tab.is_visible():
-                    img_tab.click()
-                    page.wait_for_timeout(500)
+                logs.append("🖼️ Buka Tab 'Images and Links'...")
+                # TRACK KLIK TAB IMAGES
+                track_and_click("button[aria-controls='attrib-images'], a[href='#attrib-images']", "Tab Images & Links")
+                page.wait_for_timeout(500)
                 
                 intro_input = page.locator("#jform_images_image_intro").first
                 if intro_input.is_visible():
@@ -231,11 +254,10 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                     full_input.fill(first_img_relative_path)
 
             # 6. INJEKSI KONTEN KE EDITOR
-            logs.append("📝 Memasukkan Teks Artikel ke Editor...")
-            content_tab = page.locator("button[aria-controls='editor-content'], a[href='#editor-content']").first
-            if content_tab.is_visible():
-                content_tab.click()
-                page.wait_for_timeout(500)
+            logs.append("📝 Buka Tab 'Content / Editor'...")
+            # TRACK KLIK TAB CONTENT
+            track_and_click("button[aria-controls='editor-content'], a[href='#editor-content']", "Tab Content Editor")
+            page.wait_for_timeout(500)
 
             page.evaluate("""
                 ([selector, html]) => {
@@ -253,11 +275,10 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
 
             # 7. UBAH PENULIS ASLI DI TAB PUBLISHING
             if author_id and author_id > 0:
-                logs.append(f"👤 **Mengubah Metadata Penulis Artikel ke Author ID: {author_id}...**")
-                pub_tab = page.locator("button[aria-controls='publishing'], a[href='#publishing']").first
-                if pub_tab.is_visible():
-                    pub_tab.click()
-                    page.wait_for_timeout(500)
+                logs.append(f"👤 Buka Tab 'Publishing' untuk Author ID: {author_id}...")
+                # TRACK KLIK TAB PUBLISHING
+                track_and_click("button[aria-controls='publishing'], a[href='#publishing']", "Tab Publishing")
+                page.wait_for_timeout(500)
                 
                 page.evaluate("""
                     ([authorId]) => {
@@ -270,34 +291,70 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 """, [str(author_id)])
                 page.wait_for_timeout(500)
 
-            # 8. SUBMIT VIA JOOMLA API & FALLBACK CLICK
-            logs.append("💾 **Menekan Tombol 'Save & Close'...**")
+            # 8. DETEKSI & KLIK TOMBOL SAVE & CLOSE (WITH FULL AUDIT TRACKER)
+            logs.append("💾 **Menelusuri & Mengeklik Tombol 'Save & Close'...**")
+            
+            # Rekam info lengkap elemen toolbar Save
+            toolbar_info = page.evaluate("""
+                () => {
+                    const btn = document.querySelector("joomla-toolbar-button[task='article.save'] button, button[data-task='article.save'], button.button-save");
+                    if (btn) {
+                        return {
+                            found: true,
+                            tagName: btn.tagName,
+                            id: btn.id || 'No ID',
+                            className: btn.className || 'No Class',
+                            task: btn.getAttribute('data-task') || btn.getAttribute('task') || 'No Task',
+                            outerHTML: btn.outerHTML.substring(0, 150)
+                        };
+                    }
+                    return { found: false };
+                }
+            """)
+
+            if toolbar_info and toolbar_info.get("found"):
+                logs.append(f"🎯 **[TARGET FOUND]** Tombol Save terdeteksi: `<{toolbar_info['tagName']} class='{toolbar_info['className']}' task='{toolbar_info['task']}'>`")
+            else:
+                logs.append("⚠️ **[TARGET MISSING]** Tombol fisik Save tidak ditemukan di DOM, menggunakan fallback API.")
+
+            # Eksekusi Klik Fisik Tombol Save
+            clicked_status = track_and_click("joomla-toolbar-button[task='article.save'] button, button[data-task='article.save'], button.button-save", "Tombol Save & Close")
+            
+            # Fallback pemicu JS jika click tracker belum jalan
             page.evaluate("""
                 () => {
                     if (window.Joomla && typeof Joomla.submitbutton === 'function') {
                         Joomla.submitbutton('article.save');
-                    } else if (document.adminForm) {
-                        Joomla.submitform('article.save', document.adminForm);
                     }
                 }
             """)
-            page.wait_for_timeout(1000)
+
+            # Tunggu proses render dan alih halaman Joomla
+            page.wait_for_timeout(4000)
             
-            save_btn = page.locator("joomla-toolbar-button[task='article.save'] button, button[data-task='article.save'], button.button-save").first
-            if save_btn.is_visible():
-                save_btn.click()
+            # Tangkap Screenshot Halaman Akhir sebagai bukti
+            screenshot_bytes = page.screenshot(full_page=False)
+            screenshots.append(screenshot_bytes)
 
-            page.wait_for_load_state("domcontentloaded")
-            page.wait_for_timeout(3000)
+            logs.append(f"🌐 **[URL SEKARANG]**: `{page.url}`")
 
-            logs.append("🎉 **Artikel BERHASIL Diterbitkan Sempurna oleh Bot!**")
-            browser.close()
-            return True, logs
+            if "option=com_content&view=articles" in page.url or "task=article.save" not in page.url:
+                logs.append("🎉 **Artikel BERHASIL Diterbitkan Sempurna & Terkonfirmasi di Database!**")
+                browser.close()
+                return True, logs, screenshots
+            else:
+                logs.append("⚠️ Halaman belum berpindah. Silakan periksa screenshot tampilan backend di bawah.")
+                browser.close()
+                return False, logs, screenshots
 
         except Exception as e:
             logs.append(f"❌ **Error Automation:** `{str(e)}`")
+            try:
+                screenshots.append(page.screenshot())
+            except Exception:
+                pass
             browser.close()
-            return False, logs
+            return False, logs, screenshots
 
 # --- INTERFACE GUI STREAMLIT ---
 doc_url = st.text_input("Link Google Docs:")
@@ -341,7 +398,7 @@ if st.button("🚀 Publish Artikel Sekarang", type="primary"):
                 formatted_html = format_with_gemini(raw_text, st.secrets["GEMINI_API_KEY"])
 
             with st.spinner("3/3 Bot Login & Terbit Artikel..."):
-                success, debug_logs = run_publisher_bot(
+                success, debug_logs, shot_list = run_publisher_bot(
                     st.secrets["JOOMLA_URL"],
                     st.secrets["JOOMLA_ADMIN_USER"],
                     st.secrets["JOOMLA_ADMIN_PASS"],
@@ -354,15 +411,20 @@ if st.button("🚀 Publish Artikel Sekarang", type="primary"):
                     st.secrets["JOOMLA_TOKEN"]
                 )
 
-            with st.expander("🛠️ Console Logs Automation", expanded=True):
+            with st.expander("🛠️ Console Logs & Tracked Clicks Automation", expanded=True):
                 for log in debug_logs:
                     st.markdown(log)
+
+            if shot_list:
+                with st.expander("📸 Screenshot Bukti Tampilan Browser Bot", expanded=True):
+                    for img_b in shot_list:
+                        st.image(img_b, caption="Tampilan Halaman Backend Joomla saat Bot Berjalan", use_container_width=True)
 
             if success:
                 st.success("✅ Artikel BERHASIL diterbitkan! Kategori dan Penulis sekarang sudah 100% sesuai pilihan!")
                 st.balloons()
             else:
-                st.error("Gagal memproses artikel. Cek log debugger di atas.")
+                st.error("Gagal memproses artikel. Cek log debugger dan screenshot tampilan di atas.")
 
         except Exception as e:
             st.error(f"Error: {str(e)}")
