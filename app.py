@@ -119,7 +119,7 @@ def format_with_gemini(raw_text, gemini_key):
     )
     return response.text
 
-# --- 3. BROWSER BOT AUTOMATION (FULL USER PICKER MODAL POP-UP AUTOMATION) ---
+# --- 3. BROWSER BOT AUTOMATION (PHYSICAL USER MODAL SELECTION) ---
 def run_publisher_bot(admin_url, username, password, title, alias, cat_id, author_id, author_name, html_content, images, bridge_token):
     logs = []
     screenshots = []
@@ -252,9 +252,9 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 if full_input.is_visible():
                     full_input.fill(first_img_relative_path)
 
-            # 7. UBAH PENULIS: KLIK IKON USER -> CARI PENULIS DI MODAL POP-UP
+            # 7. PILIH USER EKSPILSIT LEWAT MODAL POP-UP (JOOMLA 5 WEB COMPONENT FIX)
             if author_name:
-                logs.append(f"👤 **[ALUR IKON USER]** Buka Tab 'Publishing' untuk mencari '{author_name}'...")
+                logs.append(f"👤 **[MODAL USER]** Membuka Tab 'Publishing' untuk memilih '{author_name}'...")
                 page.evaluate("""
                     () => {
                         const tabs = Array.from(document.querySelectorAll('button, a'));
@@ -264,94 +264,85 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 """)
                 page.wait_for_timeout(500)
 
-                # A. Mengeklik Ikon User (Tombol Biru berpictogram orang)
-                logs.append("🖱️ Mengeklik Ikon User untuk membuka pop-up 'Select User'...")
-                icon_clicked = page.evaluate("""
+                # Buka Pop-up dengan mentrigger tombol modal di Joomla 5 Web Component
+                logs.append("🖱️ Mengeklik ikon user 'Select User'...")
+                page.evaluate("""
                     () => {
-                        const btn = document.querySelector('#jform_created_by_select, button[data-url*="field=created_by"], .input-group button.btn-primary');
+                        // Cari tombol di dalam joomla-field-user atau tombol modal created_by
+                        const btn = document.querySelector('joomla-field-user button, button[data-url*="created_by"], #jform_created_by_select');
                         if (btn) {
                             btn.click();
-                            return true;
+                        } else {
+                            // Fallback modal launcher Joomla
+                            const link = document.querySelector('a[href*="layout=modal"][href*="field=created_by"]');
+                            if (link) link.click();
                         }
-                        return false;
                     }
                 """)
-
-                if not icon_clicked:
-                    # Fallback locator fisik Playwright
-                    page.locator(".input-group button.btn-primary, button[data-url*='created_by']").first.click()
-
-                page.wait_for_timeout(2000)
-                logs.append("🔍 **Modal Pop-up Terbuka! Mencari Penulis di dalam Tabel Modal...**")
+                page.wait_for_timeout(2500)
 
                 user_selected = False
-                
-                # B. Deteksi iframe / DOM Modal tempat daftar user berada
-                try:
-                    # Cari iframe modal pencarian user Joomla 5
-                    modal_iframe = page.frame_locator("iframe[name*='field-user-modal'], iframe[src*='option=com_users']")
-                    
-                    # Coba klik langsung nama user di daftar tabel modal
-                    target_link = modal_iframe.locator(f"a:has-text('{author_name.split(',')[0]}')").first
-                    if target_link.is_visible(timeout=3000):
-                        target_link.click()
-                        user_selected = True
-                        logs.append(f"✅ **Berhasil memilih '{author_name}' dari Iframe Modal!**")
-                    else:
-                        # Jika nama belum kelihatan di halaman 1, gunakan kotak Search Modal
-                        search_box = modal_iframe.locator("#filter_search, input[name='filter[search]']").first
-                        if search_box.is_visible():
-                            search_box.fill(author_name.split(',')[0])
-                            modal_iframe.locator("button.btn-primary[type='submit'], button[title*='Search']").first.click()
-                            page.wait_for_timeout(1000)
-                            modal_iframe.locator(f"a:has-text('{author_name.split(',')[0]}')").first.click()
-                            user_selected = True
-                            logs.append(f"✅ **Berhasil mencari & mengeklik '{author_name}' via Search Modal!**")
-                except Exception as e_modal:
-                    logs.append(f"ℹ️ Info Pencarian Modal: `{str(e_modal)}`")
+                short_name = author_name.split(',')[0].strip()
 
-                # C. Fallback jika modal berbentuk elemen DOM Utama (non-iframe)
+                # Memindai modal dialog (bisa berupa iframe atau dialog HTML5)
+                logs.append(f"🔍 Mencari nama '{short_name}' di dalam tabel 'Select User'...")
+                
+                # Opsi A: Iframe Modal
+                frames = page.frames
+                for frame in frames:
+                    if "com_users" in frame.url or "field=created_by" in frame.url or "layout=modal" in frame.url:
+                        try:
+                            user_btn = frame.locator(f"a:has-text('{short_name}'), button:has-text('{short_name}')").first
+                            if user_btn.is_visible(timeout=2000):
+                                user_btn.click()
+                                user_selected = True
+                                logs.append(f"🎉 **SUKSES!** Mengeklik '{author_name}' langsung di Iframe Modal User!")
+                                break
+                        except Exception:
+                            pass
+
+                # Opsi B: Modal Utama (Non-iframe)
                 if not user_selected:
                     try:
-                        main_link = page.locator(f".modal-body a:has-text('{author_name.split(',')[0]}'), joomla-field-user a:has-text('{author_name.split(',')[0]}')").first
-                        if main_link.is_visible():
-                            main_link.click()
+                        user_btn_main = page.locator(f"div.modal a:has-text('{short_name}'), joomla-field-user a:has-text('{short_name}')").first
+                        if user_btn_main.is_visible(timeout=2000):
+                            user_btn_main.click()
                             user_selected = True
-                            logs.append(f"✅ **Berhasil mengeklik '{author_name}' dari Modal DOM Utama!**")
+                            logs.append(f"🎉 **SUKSES!** Mengeklik '{author_name}' di Modal Utama!")
                     except Exception:
                         pass
 
-                # D. Fallback Aman: Panggil fungsi callback resmi Joomla `jSelectUser`
+                # Opsi C: Panggil callback JavaScript resmi Joomla `jSelectUser`
                 if not user_selected:
-                    logs.append("ℹ️ Menggunakan Callback Resmi `jSelectUser` Joomla untuk mendaftarkan Penulis...")
+                    logs.append("ℹ️ Memanggil fungsi callback bawaan Joomla (`jSelectUser_jform_created_by`)...")
                     page.evaluate("""
                         ([authorId, authorName]) => {
                             if (typeof window.jSelectUser_jform_created_by === 'function') {
-                                window.jSelectUser_jform_created_by(authorId, authorName);
+                                window.jSelectUser_jform_created_by(authorId, authorName, '');
+                            } else if (typeof window.jSelectUser === 'function') {
+                                window.jSelectUser('jform_created_by', authorId, authorName);
                             } else {
                                 const inputId = document.querySelector('#jform_created_by');
                                 const inputText = document.querySelector('#jform_created_by_name');
-                                if (inputId) inputId.value = String(authorId);
+                                if (inputId) {
+                                    inputId.value = String(authorId);
+                                    inputId.dispatchEvent(new Event('change', { bubbles: true }));
+                                }
                                 if (inputText) inputText.value = authorName;
                             }
                         }
                     """, [author_id, author_name])
 
-                page.wait_for_timeout(500)
+                page.wait_for_timeout(1000)
 
-            # 8. HAPUS OVERLAY TERBANYANG & SAVE & CLOSE
+            # 8. SUBMIT FORM VIA JOOMLA SUBMIT API
             logs.append("💾 **Menekan Tombol 'Save & Close'...**")
-            
             page.evaluate("""
                 () => {
-                    // Tutup/Hapus kalender atau modal tertinggal di layar
-                    const calendarOverlays = document.querySelectorAll('.js-calendar-container, joomla-field-calendar, div[class*="calendar"]');
-                    calendarOverlays.forEach(el => {
-                        el.style.display = 'none';
-                        if (el.parentNode) el.parentNode.removeChild(el);
-                    });
-                    
-                    // Eksekusi Submit Form resmi Joomla
+                    // Bersihkan overlay kalender/modal jika ada yang tersisa
+                    const overlays = document.querySelectorAll('.js-calendar-container, joomla-field-calendar');
+                    overlays.forEach(el => el.remove());
+
                     if (window.Joomla && typeof Joomla.submitbutton === 'function') {
                         Joomla.submitbutton('article.save');
                     } else if (document.adminForm) {
