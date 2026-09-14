@@ -183,34 +183,25 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
             page.wait_for_load_state("domcontentloaded")
             logs.append("✅ **Berhasil Login ke Dashboard Joomla!**")
 
-            # 2. NAVIGASI MELALUI MENU CONTENT (SEPERTI MANUSIA)
-            logs.append("📂 Membuka Sidebar Menu 'Content'...")
-            
-            # Coba klik menu Content pada sidebar kiri
-            content_menu = page.locator("a:has-text('Content'), li#menu-content > a, nav#sidebar a[href*='com_content']")
-            if content_menu.is_visible():
-                content_menu.click()
-                page.wait_for_timeout(500)
-
-            # Klik ikon (+) pada Articles atau buka Articles
+            # 2. Buka Form Artikel Baru Langsung
             logs.append("📝 Menuju halaman pembuatan Artikel Baru...")
-            add_article_btn = page.locator("a[href*='task=article.add'], a:has-text('Articles') + a, button.button-new")
+            new_art_url = f"{base_domain}/administrator/index.php?option=com_content&task=article.add"
+            page.goto(new_art_url, wait_until="domcontentloaded", timeout=60000)
             
-            if add_article_btn.is_visible():
-                add_article_btn.click()
-            else:
-                # Direct fallback ke halaman pembuatan artikel
-                page.goto(f"{base_domain}/administrator/index.php?option=com_content&task=article.add", wait_until="domcontentloaded")
+            # Tunggu halaman benar-benar selesai render
+            page.wait_for_timeout(2000)
 
-            page.wait_for_load_state("domcontentloaded")
-
-            # 3. Input Title & Alias
-            title_input = page.locator("input[name='jform[title]'], #jform_title")
-            title_input.wait_for(state="visible", timeout=20000)
+            # 3. Tunggu & Isi Field Title
+            logs.append("✍️ Mengisi Judul Artikel...")
+            # Menunggu selector apapun yang mewakili input title di Joomla 5
+            page.wait_for_selector("input[name='jform[title]'], #jform_title", state="attached", timeout=30000)
+            
+            title_input = page.locator("input[name='jform[title]'], #jform_title").first
+            title_input.scroll_into_view_if_needed()
             title_input.fill(title)
 
             if alias:
-                alias_input = page.locator("input[name='jform[alias]'], #jform_alias")
+                alias_input = page.locator("input[name='jform[alias]'], #jform_alias").first
                 if alias_input.is_visible():
                     alias_input.fill(alias)
 
