@@ -233,4 +233,114 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 
                 full_input = page.locator("input[name='jform[images][image_fulltext]'], #jform_images_image_fulltext")
                 if full_input.is_visible():
-                    full_input.fill(first_img_relative
+                    full_input.fill(first_img_relative_path)
+
+            # 6. Injeksi Konten Artikel Ke Editor TinyMCE
+            content_tab = page.locator("button[aria-controls='editor-content'], a[href='#editor-content']")
+            if content_tab.is_visible():
+                content_tab.click()
+                page.wait_for_timeout(500)
+
+            iframe = page.frame_locator("#jform_articletext_ifr")
+            if iframe.locator("body").is_visible():
+                iframe.locator("body").evaluate("(el, content) => el.innerHTML = content", html_content)
+            else:
+                page.fill("textarea[name='jform[articletext]'], #jform_articletext", html_content)
+
+            # 7. UBAH PENULIS ASLI DI TAB PUBLISHING (CREATED BY)
+            if author_id and author_id > 0:
+                try:
+                    logs.append(f"👤 **Mengubah Metadata Penulis Artikel ke Author ID: {author_id}...**")
+                    pub_tab = page.locator("button[aria-controls='publishing'], a[href='#publishing']")
+                    if pub_tab.is_visible():
+                        pub_tab.click()
+                        page.wait_for_timeout(500)
+                    
+                    author_input = page.locator("input[name='jform[created_by]'], #jform_created_by")
+                    if author_input.is_visible():
+                        author_input.fill(str(author_id))
+                except Exception as e_author:
+                    logs.append(f"⚠️ Catatan Author: `{str(e_author)}`")
+
+            # 8. Klik Save & Close
+            logs.append("💾 **Menekan Tombol 'Save & Close'...**")
+            save_btn = page.locator("button.button-save, button[data-task='article.save']")
+            save_btn.click()
+            page.wait_for_load_state("domcontentloaded")
+
+            logs.append("🎉 **Artikel BERHASIL Diterbitkan Sempurna oleh Bot!**")
+            browser.close()
+            return True, logs
+
+        except Exception as e:
+            logs.append(f"❌ **Error Automation:** `{str(e)}`")
+            browser.close()
+            return False, logs
+
+# --- INTERFACE GUI STREAMLIT ---
+doc_url = st.text_input("Link Google Docs:")
+article_title = st.text_input("Judul Artikel:")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    selected_cat_name = st.selectbox("Pilih Kategori Artikel:", list(CATEGORIES_DICT.keys()))
+    if CATEGORIES_DICT[selected_cat_name] == -1:
+        cat_id = st.number_input("Masukkan ID Kategori Baru (Angka):", min_value=1, step=1, value=24)
+    else:
+        cat_id = CATEGORIES_DICT[selected_cat_name]
+
+with col2:
+    selected_user_name = st.selectbox("Pilih Penulis Artikel (Author):", list(USERS_DICT.keys()))
+    if USERS_DICT[selected_user_name] == -1:
+        author_id = st.number_input("Masukkan ID Penulis Baru (Angka):", min_value=1, step=1, value=359)
+    else:
+        author_id = USERS_DICT[selected_user_name]
+
+if st.button("🚀 Publish Artikel Sekarang", type="primary"):
+    if not doc_url or not article_title:
+        st.error("Isi Link Google Docs dan Judul terlebih dahulu.")
+    else:
+        try:
+            doc_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', doc_url)
+            if not doc_id_match:
+                st.error("URL Google Docs tidak valid.")
+                st.stop()
+            doc_id = doc_id_match.group(1)
+
+            alias_clean = re.sub(r'[^a-z0-9-]', '', article_title.lower().replace(" ", "-").replace(":", ""))
+            alias_clean = re.sub(r'-+', '-', alias_clean).strip('-')
+            alias_clean = f"{alias_clean}-{int(time.time())}"
+
+            with st.spinner("1/3 Membaca Google Docs & Gambar..."):
+                raw_text, images = get_gdoc_data(doc_id, st.secrets["gcp_service_account"])
+
+            with st.spinner("2/3 Format Gemini AI (Justify, Read More, Hapus Judul Docs)..."):
+                formatted_html = format_with_gemini(raw_text, st.secrets["GEMINI_API_KEY"])
+
+            with st.spinner("3/3 Bot Login & Terbit Artikel..."):
+                success, debug_logs = run_publisher_bot(
+                    st.secrets["JOOMLA_URL"],
+                    st.secrets["JOOMLA_ADMIN_USER"],
+                    st.secrets["JOOMLA_ADMIN_PASS"],
+                    article_title,
+                    alias_clean,
+                    cat_id,
+                    author_id,
+                    formatted_html,
+                    images,
+                    st.secrets["JOOMLA_TOKEN"]
+                )
+
+            with st.expander("🛠️ Console Logs Automation", expanded=True):
+                for log in debug_logs:
+                    st.markdown(log)
+
+            if success:
+                st.success("✅ Artikel BERHASIL diterbitkan! Rata kiri-kanan, Read More, dan Gambar Intro terpasang otomatis.")
+                st.balloons()
+            else:
+                st.error("Gagal memproses artikel. Cek log debugger di atas.")
+
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
