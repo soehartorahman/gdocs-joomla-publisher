@@ -156,7 +156,18 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
 
     # B. EKSEKUSI UI AUTOMATION DENGAN PLAYWRIGHT
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        import os
+        executable_path = None
+        if os.path.exists("/usr/bin/chromium"):
+            executable_path = "/usr/bin/chromium"
+        elif os.path.exists("/usr/bin/chromium-browser"):
+            executable_path = "/usr/bin/chromium-browser"
+
+        if executable_path:
+            browser = p.chromium.launch(executable_path=executable_path, headless=True)
+        else:
+            browser = p.chromium.launch(headless=True)
+
         context = browser.new_context(viewport={'width': 1366, 'height': 768})
         page = context.new_page()
 
