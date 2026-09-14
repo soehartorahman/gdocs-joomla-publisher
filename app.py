@@ -119,7 +119,7 @@ def format_with_gemini(raw_text, gemini_key):
     )
     return response.text
 
-# --- 3. BROWSER BOT AUTOMATION (DISPERBAIKI LOGIKA CATEGORY & AUTHOR TRIGGER) ---
+# --- 3. BROWSER BOT AUTOMATION (DIRECT JOOMLA SUBMIT FIX) ---
 def run_publisher_bot(admin_url, username, password, title, alias, cat_id, author_id, html_content, images, bridge_token):
     logs = []
     logs.append("🤖 **Memulai Publisher Bot (Headless Mode)...**")
@@ -186,33 +186,20 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
             new_art_url = f"{base_domain}/administrator/index.php?option=com_content&task=article.add"
             logs.append(f"📝 Membuka Form Artikel Baru: `{new_art_url}`")
             page.goto(new_art_url, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_selector("#jform_title", timeout=20000)
 
             # 3. Isi Judul & Alias
             logs.append("✍️ Mengisi Judul Artikel...")
-            title_input = page.locator("#jform_title").first
-            title_input.wait_for(state="visible", timeout=20000)
-            title_input.fill(title)
+            page.fill("#jform_title", title)
 
             if alias:
                 alias_input = page.locator("#jform_alias").first
                 if alias_input.is_visible():
                     alias_input.fill(alias)
 
-            # 4. FIX: PILIH KATEGORI (DENGAN EVENT TRIGGER HARMONIS)
+            # 4. PILIH KATEGORI (Standard Select)
             logs.append(f"🏷️ Mengubah Kategori ke ID: `{cat_id}`...")
-            page.evaluate("""
-                ([selector, val]) => {
-                    const el = document.querySelector(selector);
-                    if (el) {
-                        el.value = val;
-                        el.dispatchEvent(new Event('change', { bubbles: true }));
-                        el.dispatchEvent(new Event('input', { bubbles: true }));
-                        // Jika Joomla memakai library Choices.js
-                        if (el.choices) { el.choices.setChoiceByValue(val); }
-                    }
-                }
-            """, ["#jform_catid", str(cat_id)])
-            page.wait_for_timeout(500)
+            page.select_option("#jform_catid", value=str(cat_id))
 
             # 5. Set Intro Image pada Tab Images and Links
             if first_img_relative_path:
@@ -230,7 +217,7 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 if full_input.is_visible():
                     full_input.fill(first_img_relative_path)
 
-            # 6. INJEKSI KONTEN KE EDITOR (JCE / TINYMCE)
+            # 6. INJEKSI KONTEN KE EDITOR
             logs.append("📝 Memasukkan Teks Artikel ke Editor...")
             content_tab = page.locator("button[aria-controls='editor-content'], a[href='#editor-content']").first
             if content_tab.is_visible():
@@ -241,37 +228,57 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 ([selector, html]) => {
                     if (window.WFEditor && WFEditor.instances && WFEditor.instances.jform_articletext) {
                         WFEditor.instances.jform_articletext.setContent(html);
-                        return;
-                    }
-                    if (window.WFEditor && typeof WFEditor.setContent === 'function') {
-                        WFEditor.setContent('jform_articletext', html);
-                        return;
-                    }
-                    if (window.tinymce && tinymce.get('jform_articletext')) {
+                    } else if (window.tinymce && tinymce.get('jform_articletext')) {
                         tinymce.get('jform_articletext').setContent(html);
-                        return;
+                    } else {
+                        const textarea = document.querySelector(selector);
+                        if (textarea) { textarea.value = html; }
                     }
-                    const iframes = document.querySelectorAll('iframe');
-                    for (let iframe of iframes) {
-                        if (iframe.id.includes('jform_articletext') || iframe.src.includes('editor')) {
-                            const doc = iframe.contentDocument || iframe.contentWindow.document;
-                            if (doc && doc.body) {
-                                doc.body.innerHTML = html;
-                                return;
-                            }
-                        }
-                    }
-                    const textarea = document.querySelector(selector);
-                    if (textarea) { textarea.value = html; }
                 }
             """, ["#jform_articletext", html_content])
             page.wait_for_timeout(500)
 
-            # 8. Menekan Save & Close
-            logs.append("💾 **Menekan Tombol 'Save & Close'...**")
-            save_btn = page.locator("button.button-save, button[data-task='article.save']").first
-            save_btn.click()
+            # 7. UBAH PENULIS ASLI DI TAB PUBLISHING
+            if author_id and author_id > 0:
+                logs.append(f"👤 **Mengubah Metadata Penulis Artikel ke Author ID: {author_id}...**")
+                pub_tab = page.locator("button[aria-controls='publishing'], a[href='#publishing']").first
+                if pub_tab.is_visible():
+                    pub_tab.click()
+                    page.wait_for_timeout(500)
+                
+                page.evaluate("""
+                    ([authorId]) => {
+                        const el = document.querySelector('#jform_created_by');
+                        if (el) {
+                            el.value = authorId;
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    }
+                """, [str(author_id)])
+                page.wait_for_timeout(500)
+
+            # 8. TRICK UTAMA: EKSPLISIT SUBMIT MENGGUNAKAN API JOOMLA & FALLBACK CLICK
+            logs.append("💾 **Memicu Perintah Simpan (Joomla Submit API)...**")
+            
+            # Panggil langsung JS submitbutton Joomla
+            page.evaluate("""
+                () => {
+                    if (window.Joomla && typeof Joomla.submitbutton === 'function') {
+                        Joomla.submitbutton('article.save');
+                    } else if (document.adminForm) {
+                        Joomla.submitform('article.save', document.adminForm);
+                    }
+                }
+            """)
+            
+            # Cadangan jika JS API tertahan: klik tombol fisik
+            page.wait_for_timeout(1000)
+            save_btn = page.locator("joomla-toolbar-button[task='article.save'] button, button[data-task='article.save'], button.button-save").first
+            if save_btn.is_visible():
+                save_btn.click()
+
             page.wait_for_load_state("domcontentloaded")
+            page.wait_for_timeout(3000)
 
             logs.append("🎉 **Artikel BERHASIL Diterbitkan Sempurna oleh Bot!**")
             browser.close()
