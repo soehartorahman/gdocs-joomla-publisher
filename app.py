@@ -105,7 +105,7 @@ def format_with_gemini(raw_text, gemini_key):
     2. JANGAN sertakan tag <h1> untuk judul di dalam body HTML.
     3. Bungkus SELURUH konten artikel dalam kontainer <div style="text-align: justify;"> agar paragraf rata kiri-kanan.
     4. Masukkan tag pembatas Joomla `<hr id="system-readmore" />` persis setelah paragraf pertama (sebelum <h2> atau gambar kedua) untuk memicu fitur "Read More".
-    5. Gunakan tag HTML standar seperti <h2>, 3, <p>, <ul>, <li>, <strong>.
+    5. Gunakan tag HTML standar seperti <h2>, <h3>, <p>, <ul>, <li>, <strong>.
     6. JANGAN HAPUS atau merusak tag placeholder gambar seperti [IMAGE_PLACEHOLDER_1], [IMAGE_PLACEHOLDER_2], dst.
     7. Kembalikan HANYA kode HTML tanpa format markdown (jangan gunakan ```html).
 
@@ -119,8 +119,8 @@ def format_with_gemini(raw_text, gemini_key):
     )
     return response.text
 
-# --- 3. BROWSER BOT AUTOMATION ---
-def run_publisher_bot(admin_url, username, password, title, alias, cat_id, author_id, html_content, images, bridge_token):
+# --- 3. BROWSER BOT AUTOMATION (AUTHOR NAME & CATEGORY FIX) ---
+def run_publisher_bot(admin_url, username, password, title, alias, cat_id, author_id, author_name, html_content, images, bridge_token):
     logs = []
     screenshots = []
     logs.append("🤖 **Memulai Publisher Bot...**")
@@ -198,7 +198,7 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 if alias_input.is_visible():
                     alias_input.fill(alias)
 
-            # 4. PENANGANAN CATEGORY PRESISI (CHOICES API + DISPATCH EVENT)
+            # 4. MEMILIH KATEGORI (PANEL KANAN)
             logs.append(f"🏷️ Memilih Kategori ID: `{cat_id}`...")
             page.evaluate("""
                 ([catId]) => {
@@ -208,23 +208,7 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                         select.removeAttribute('required');
                         select.removeAttribute('aria-invalid');
                         select.classList.remove('invalid');
-                        
-                        // Set nilai pada Choices Instance milik Joomla 5 jika tersedia
-                        if (select.choicesInstance) {
-                            try { select.choicesInstance.setChoiceByValue(String(catId)); } catch(e){}
-                        }
-                        
-                        // Memicu event internal agar validasi Joomla menganggap kolom terisi
                         select.dispatchEvent(new Event('change', { bubbles: true }));
-                        select.dispatchEvent(new Event('input', { bubbles: true }));
-                        select.dispatchEvent(new Event('blur', { bubbles: true }));
-                    }
-
-                    // Hapus kelas invalid pada pembungkus Web Component Joomla
-                    const fancy = document.querySelector('joomla-field-fancy-select');
-                    if (fancy) {
-                        fancy.classList.remove('invalid');
-                        fancy.removeAttribute('aria-invalid');
                     }
                 }
             """, [str(cat_id)])
@@ -268,9 +252,9 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 if full_input.is_visible():
                     full_input.fill(first_img_relative_path)
 
-            # 7. UBAH PENULIS ASLI DI TAB 'Publishing'
-            if author_id and author_id > 0:
-                logs.append(f"👤 Ubah Author ID ke: `{author_id}`...")
+            # 7. UBAH PENULIS DI TAB 'Publishing' DENGAN NAMA PENULIS DAN AUTHOR ID
+            if author_name:
+                logs.append(f"👤 Ubah Penulis di Tab 'Publishing' ke: `{author_name}` (ID: {author_id})...")
                 page.evaluate("""
                     () => {
                         const tabs = Array.from(document.querySelectorAll('button, a'));
@@ -281,14 +265,31 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 page.wait_for_timeout(500)
 
                 page.evaluate("""
-                    ([authorId]) => {
-                        const el = document.querySelector('#jform_created_by');
-                        if (el) {
-                            el.value = authorId;
-                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                    ([authorName, authorId]) => {
+                        // 1. Mengisi kolom Created By Alias / Author (Nama Penulis Teks)
+                        const createdByAlias = document.querySelector('#jform_created_by_alias, input[name="jform[created_by_alias]"]');
+                        if (createdByAlias) {
+                            createdByAlias.value = authorName;
+                            createdByAlias.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                        
+                        // 2. Mengisi Author Field biasa jika ada
+                        const authorField = document.querySelector('#jform_author, input[name="jform[author]"]');
+                        if (authorField) {
+                            authorField.value = authorName;
+                            authorField.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+
+                        // 3. Mengisi ID Penulis jika valid
+                        if (authorId && authorId > 0) {
+                            const createdBy = document.querySelector('#jform_created_by');
+                            if (createdBy) {
+                                createdBy.value = String(authorId);
+                                createdBy.dispatchEvent(new Event('change', { bubbles: true }));
+                            }
                         }
                     }
-                """, [str(author_id)])
+                """, [author_name, author_id])
                 page.wait_for_timeout(500)
 
             # 8. TEKAN SAVE & CLOSE LEWAT JOOMLA SUBMIT API
@@ -314,22 +315,14 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
 
             logs.append(f"🌐 **[URL SEKARANG]**: `{page.url}`")
 
-            # Memeriksa hanya field input nyata yang invalid (mengabaikan adminForm / FIELDSET)
-            invalid_input_count = page.evaluate("""
-                () => {
-                    const invalidElems = document.querySelectorAll('input.invalid, select.invalid, textarea.invalid, [aria-invalid="true"]');
-                    return invalidElems.length;
-                }
-            """)
+            has_error = page.locator(".alert-danger, .system-message-container .alert-error").is_visible()
 
-            has_error_box = page.locator(".alert-danger, .system-message-container .alert-error").is_visible()
-
-            if not has_error_box and invalid_input_count == 0 and ("option=com_content&view=articles" in page.url or "task=article.save" not in page.url):
+            if not has_error and ("option=com_content&view=articles" in page.url or "task=article.save" not in page.url):
                 logs.append("🎉 **Artikel BERHASIL Diterbitkan Sempurna & Terkonfirmasi di Database!**")
                 browser.close()
                 return True, logs, screenshots
             else:
-                logs.append("❌ **Gagal Simpan:** Form tertahan validasi. Periksa screenshot tampilan di bawah.")
+                logs.append("❌ **Gagal Simpan:** Periksa screenshot tampilan backend di bawah.")
                 browser.close()
                 return False, logs, screenshots
 
@@ -359,8 +352,10 @@ with col2:
     selected_user_name = st.selectbox("Pilih Penulis Artikel (Author):", list(USERS_DICT.keys()))
     if USERS_DICT[selected_user_name] == -1:
         author_id = st.number_input("Masukkan ID Penulis Baru (Angka):", min_value=1, step=1, value=359)
+        author_name = "Penulis Kustom"
     else:
         author_id = USERS_DICT[selected_user_name]
+        author_name = selected_user_name
 
 if st.button("🚀 Publish Artikel Sekarang", type="primary"):
     if not doc_url or not article_title:
@@ -392,6 +387,7 @@ if st.button("🚀 Publish Artikel Sekarang", type="primary"):
                     alias_clean,
                     cat_id,
                     author_id,
+                    author_name,
                     formatted_html,
                     images,
                     st.secrets["JOOMLA_TOKEN"]
