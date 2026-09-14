@@ -174,17 +174,18 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
         try:
             # 1. Login Backend Menggunakan Kredensial Bot (bot_post) dari Secrets
             logs.append(f"🔑 Menuju halaman login admin: `{admin_login_url}`")
-            page.goto(admin_login_url, wait_until="networkidle")
+            page.goto(admin_login_url, wait_until="domcontentloaded", timeout=60000)
 
             page.fill("input[name='username']", username)
             page.fill("input[name='passwd']", password)
             page.click("button[type='submit']")
-            page.wait_for_load_state("networkidle")
+            page.wait_for_load_state("domcontentloaded")
             logs.append("✅ **Berhasil Login ke Joomla dengan Akun Bot (`bot_post`)!**")
 
             # 2. Buka Form Artikel Baru
             new_art_url = f"{base_domain}/administrator/index.php?option=com_content&task=article.add"
-            page.goto(new_art_url, wait_until="networkidle")
+            page.goto(new_art_url, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_selector("#jform_title", timeout=15000)
             logs.append("📝 Membuka Form 'Articles: New'...")
 
             # 3. Isi Form Title & Alias
@@ -226,7 +227,7 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
             # 8. Klik Save & Close (Resmi Menampilkan dan Menerbitkan Artikel)
             logs.append("💾 **Menekan Tombol 'Save & Close'...**")
             page.click("button.button-save, button[data-task='article.save']")
-            page.wait_for_load_state("networkidle")
+            page.wait_for_load_state("domcontentloaded")
 
             logs.append("🎉 **Artikel BERHASIL Diterbitkan Sempurna oleh Bot atas nama Penulis yang Dipilih!**")
             browser.close()
