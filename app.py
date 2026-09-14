@@ -267,28 +267,6 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
             """, ["#jform_articletext", html_content])
             page.wait_for_timeout(500)
 
-            # 7. FIX: UBAH PENULIS ASLI DI TAB PUBLISHING (CREATED BY)
-            if author_id and author_id > 0:
-                logs.append(f"👤 **Mengubah Metadata Penulis Artikel ke Author ID: {author_id}...**")
-                pub_tab = page.locator("button[aria-controls='publishing'], a[href='#publishing']").first
-                if pub_tab.is_visible():
-                    pub_tab.click()
-                    page.wait_for_timeout(500)
-                
-                # Mengisi ID Author dan memicu event pendaftaran data di Joomla
-                page.evaluate("""
-                    ([selector, authorId]) => {
-                        const el = document.querySelector(selector);
-                        if (el) {
-                            el.value = authorId;
-                            el.dispatchEvent(new Event('change', { bubbles: true }));
-                            el.dispatchEvent(new Event('input', { bubbles: true }));
-                            el.dispatchEvent(new Event('blur', { bubbles: true }));
-                        }
-                    }
-                """, ["#jform_created_by", str(author_id)])
-                page.wait_for_timeout(500)
-
             # 8. Menekan Save & Close
             logs.append("💾 **Menekan Tombol 'Save & Close'...**")
             save_btn = page.locator("button.button-save, button[data-task='article.save']").first
