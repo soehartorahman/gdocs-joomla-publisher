@@ -119,11 +119,11 @@ def format_with_gemini(raw_text, gemini_key):
     )
     return response.text
 
-# --- 3. BROWSER BOT AUTOMATION (WITH FULL VALIDATION FIX & BUTTON TRACKER) ---
+# --- 3. BROWSER BOT AUTOMATION (WITH DETAILED FIELD AUDITOR) ---
 def run_publisher_bot(admin_url, username, password, title, alias, cat_id, author_id, html_content, images, bridge_token):
     logs = []
     screenshots = []
-    logs.append("🤖 **Memulai Publisher Bot (Headless Mode)...**")
+    logs.append("🤖 **Memulai Publisher Bot (Headless Mode with Field Auditor)...**")
     
     base_domain = str(admin_url).replace('/administrator', '').replace('/index.php', '').strip().rstrip('/')
     if not base_domain.startswith("http"):
@@ -149,6 +149,7 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
             logs.append(f"⚠️ Upload Gambar {idx} Error: `{str(e)}`")
 
         if idx == 1:
+            # Gunakan PATH RELATIF murni tanpa http (Standar Joomla 5 Media Field)
             first_img_relative_path = f"images/Artikel/{filename}"
 
         img_src_url = f"{base_domain}/images/Artikel/{filename}?v={unique_timestamp}"
@@ -214,13 +215,15 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                 if alias_input.is_visible():
                     alias_input.fill(alias)
 
-            # 4. FIX VALIDASI REQUIRED KATEGORI (CHOICES.JS + DOM EVENTS)
+            # 4. PILIH KATEGORI (FORCE VALID STATE)
             logs.append(f"🏷️ Mengubah Kategori ke ID: `{cat_id}`...")
             page.evaluate("""
                 ([catId]) => {
                     const select = document.querySelector('#jform_catid');
                     if (select) {
                         select.value = catId;
+                        select.removeAttribute('aria-invalid');
+                        select.classList.remove('invalid');
                         select.dispatchEvent(new Event('change', { bubbles: true }));
                         select.dispatchEvent(new Event('input', { bubbles: true }));
                         select.dispatchEvent(new Event('blur', { bubbles: true }));
@@ -234,17 +237,19 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
 
             # 5. Set Intro Image pada Tab Images and Links
             if first_img_relative_path:
-                logs.append("🖼️ Buka Tab 'Images and Links'...")
+                logs.append(f"🖼️ Buka Tab 'Images and Links' & Set Path: `{first_img_relative_path}`...")
                 track_and_click("button[aria-controls='attrib-images'], a[href='#attrib-images']", "Tab Images & Links")
                 page.wait_for_timeout(500)
                 
                 intro_input = page.locator("#jform_images_image_intro").first
                 if intro_input.is_visible():
                     intro_input.fill(first_img_relative_path)
+                    intro_input.evaluate("el => el.dispatchEvent(new Event('change', { bubbles: true }))")
                 
                 full_input = page.locator("#jform_images_image_fulltext").first
                 if full_input.is_visible():
                     full_input.fill(first_img_relative_path)
+                    full_input.evaluate("el => el.dispatchEvent(new Event('change', { bubbles: true }))")
 
             # 6. INJEKSI KONTEN KE EDITOR
             logs.append("📝 Buka Tab 'Content / Editor'...")
@@ -278,35 +283,50 @@ def run_publisher_bot(admin_url, username, password, title, alias, cat_id, autho
                             el.value = authorId;
                             el.dispatchEvent(new Event('change', { bubbles: true }));
                             el.dispatchEvent(new Event('input', { bubbles: true }));
-                            el.dispatchEvent(new Event('blur', { bubbles: true }));
                         }
                     }
                 """, [str(author_id)])
                 page.wait_for_timeout(500)
 
-            # 8. TEKAN SAVE & CLOSE DAN VERIFIKASI VALIDASI REAL-TIME
+            # 8. SUBMIT & PEMERIKSAAN DETAIL FIELD INVALID
             logs.append("💾 **Menekan Tombol 'Save & Close'...**")
-            
-            # Pemicu klik tombol Save & Close
             track_and_click("joomla-toolbar-button[task='article.save'] button, button[data-task='article.save'], button.button-save", "Tombol Save & Close")
             
             page.wait_for_timeout(4000)
-            
-            # Ambil screenshot hasil submit
+
+            # MEMERIKSA ELEMEN MANA YANG MERAH / INVALID
+            invalid_fields = page.evaluate("""
+                () => {
+                    const errors = [];
+                    const invalidElems = document.querySelectorAll('.invalid, :invalid, [aria-invalid="true"]');
+                    invalidElems.forEach(el => {
+                        const name = el.getAttribute('name') || el.getAttribute('id') || el.tagName;
+                        const label = document.querySelector(`label[for="${el.id}"]`);
+                        const labelText = label ? label.innerText.trim() : 'Tanpa Label';
+                        errors.push(`Field ID/Name: '${name}' (Label: '${labelText}')`);
+                    });
+                    return errors;
+                }
+            """)
+
             screenshot_bytes = page.screenshot(full_page=False)
             screenshots.append(screenshot_bytes)
 
+            if invalid_fields:
+                logs.append("❌ **[DETEKSI FIELD INVALID]** Field berikut yang menolak penyimpan artikel:")
+                for err in invalid_fields:
+                    logs.append(f" 🚩 {err}")
+
             logs.append(f"🌐 **[URL SEKARANG]**: `{page.url}`")
 
-            # Verifikasi jika ada error validasi di layar
-            has_error = page.locator(".alert-danger, .system-message-container .alert-error").is_visible()
+            has_error_box = page.locator(".alert-danger, .system-message-container .alert-error").is_visible()
 
-            if not has_error and ("option=com_content&view=articles" in page.url or "task=article.save" not in page.url):
+            if not has_error_box and ("option=com_content&view=articles" in page.url or "task=article.save" not in page.url):
                 logs.append("🎉 **Artikel BERHASIL Diterbitkan Sempurna & Terkonfirmasi di Database!**")
                 browser.close()
                 return True, logs, screenshots
             else:
-                logs.append("❌ **Gagal Simpan:** Validasi Joomla menolak form. Periksa screenshot tampilan di bawah.")
+                logs.append("❌ **Gagal Simpan:** Periksa log '[DETEKSI FIELD INVALID]' di atas untuk melihat field mana yang belum valid.")
                 browser.close()
                 return False, logs, screenshots
 
@@ -387,7 +407,7 @@ if st.button("🚀 Publish Artikel Sekarang", type="primary"):
                 st.success("✅ Artikel BERHASIL diterbitkan! Kategori dan Penulis sekarang sudah 100% sesuai pilihan!")
                 st.balloons()
             else:
-                st.error("Gagal memproses artikel. Cek log debugger dan screenshot tampilan di atas.")
+                st.error("Gagal memproses artikel. Cek log debugger di atas untuk melihat field penyebab error.")
 
         except Exception as e:
             st.error(f"Error: {str(e)}")
